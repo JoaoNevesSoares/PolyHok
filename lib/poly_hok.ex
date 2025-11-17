@@ -319,14 +319,6 @@ def new_gnx_fake(_size,type) do
   {:nx, type, :shape, :name, :ref}
 end
 def new_gnx_fake ((%Nx.Tensor{data: _data, type: type, shape: shape, names: name}) ) do
- # %Nx.BinaryBackend{ state: array} = data
-  #{l,c} = shape
-  #ref = case type do
-   #  {:f,32} -> create_gpu_array_nx_nif(array,l,c,Kernel.to_charlist("float"))
-   #  {:f,64} -> create_gpu_array_nx_nif(array,l,c,Kernel.to_charlist("double"))
-   #  {:s,32} -> create_gpu_array_nx_nif(array,l,c,Kernel.to_charlist("int"))
-   #  x -> raise "new_gmatrex: type #{x} not suported"
-  #end
   {:nx, type, shape, name , :ref}
 end
 def get_array_type(%Nx.Tensor{data: _data, type: _type, shape: _shape, names: _name} = nx) do
@@ -334,9 +326,6 @@ def get_array_type(%Nx.Tensor{data: _data, type: _type, shape: _shape, names: _n
 end
 def get_array_type(%Matrex{data: _matrix}) do
   {:f,32}
-end
-def null(a) do
-  a
 end
 def new_gpu_array_nif(_l,_c,_type) do
   raise "NIF new_gpu_array_nif/4 not implemented"
@@ -365,8 +354,6 @@ def get_shape_gnx_({:nx, _type, shape, _name , _ref}) do
 end
 def new_gnx_((%Nx.Tensor{data: data, type: type, shape: shape, names: name}) ) do
   %Nx.BinaryBackend{ state: array} = data
- # IO.inspect name
- # raise "hell"
   {l,c} = case shape do
     {c} -> {1,c}
     {l,c} -> {l,c}
@@ -497,14 +484,7 @@ def load_ast(kernel) do
   {_module,f_name}= case Macro.escape(kernel) do
     {:&, [],[{:/, [], [{{:., [], [module, f_name]}, [no_parens: true], []}, _nargs]}]} -> {module,f_name}
     f -> {:ok,f}
-     #_ -> raise "Argument to spawn should be a function."
   end
-
- # bytes = File.read!("c_src/#{module}.asts")
- # map_asts = :erlang.binary_to_term(bytes)
- # IO.inspect map_size(map_asts)
- # {ast,_typed?,_types} = Map.get(map_asts,String.to_atom("#{f_name}"))
- # ast
 
  send(:module_server,{:get_ast,f_name,self()})
 
@@ -525,7 +505,6 @@ def load_type_ast(kernel) do
   bytes = File.read!("c_src/Elixir.#{module}.asts")
   map_asts = :erlang.binary_to_term(bytes)
 
-            #module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
   ast = Map.get(map_asts,String.to_atom("#{kernelname}"))
   {type,ast}
 end
@@ -533,16 +512,13 @@ end
 def load_type(kernel) do
   case Macro.escape(kernel) do
     {:&, [],[{:/, [], [{{:., [], [module, kernelname]}, [no_parens: true], []}, _nargs]}]} ->
-             #IO.inspect module
 
               bytes = File.read!("c_src/#{module}.types")
               map = :erlang.binary_to_term(bytes)
 
-              #module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
 
 
               resp = Map.get(map,String.to_atom("#{kernelname}"))
-              #IO.inspect resp
               resp
     _ -> raise "PolyHok.build: invalid kernel"
   end
@@ -552,9 +528,6 @@ def load(kernel) do
     {:&, [],[{:/, [], [{{:., [], [_module, kernelname]}, [no_parens: true], []}, _nargs]}]} ->
 
 
-             # IO.puts module
-              #raise "hell"
-              #module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
               PolyHok.load_kernel_nif(to_charlist("Elixir.App"),to_charlist("#{kernelname}"))
 
     _ -> raise "PolyHok.build: invalid kernel"
@@ -564,14 +537,12 @@ def load_fun(fun) do
   case Macro.escape(fun) do
     {:&, [],[{:/, [], [{{:., [], [_module, funname]}, [no_parens: true], []}, _nargs]}]} ->
 
-              #module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
 
               PolyHok.load_fun_nif(to_charlist("Elixir.App"),to_charlist("#{funname}"))
     _ -> raise "PolyHok.invalid function"
   end
 end
 def load_lambda_compilation(_module,lambda,type) do
- # {:anon, lambda, PolyHok.load_fun_nif(to_charlist(module),to_charlist(lambda)), type}
  {:anon, lambda, type}
 end
 def load_lambda(lambda) do
@@ -672,11 +643,7 @@ def type_check_args(kernel,narg, [{rt , ft} | t1], [{:anon, _name, { art , aft}}
   end
 end
 def type_check_args(kernel,narg, [{rt , ft} | t1], [func |t2]) when is_function(func) do
-  #IO.inspect func
-  #raise "hell"
    {art,aft} = load_type(func)
-   #IO.inspect ft
-   #IO.inspect aft
    f_name= case Macro.escape(func) do
     {:&, [],[{:/, [], [{{:., [], [_module, f_name]}, [no_parens: true], []}, _nargs]}]} -> f_name
      _ -> raise "Argument to spawn should be a function."
@@ -710,15 +677,12 @@ defmacro lt(k) do
 end
 def load_type_at_compilation(kernel) do
   {:&, _ ,[{:/, _,  [{{:., _, [{:__aliases__, _, [module]}, kernelname]}, _, []}, _nargs]}]} = kernel
-#  {:&, [],[{:/, [], [{{:., [], [module, kernelname]}, [no_parens: true], []}, _nargs]}]} = kernel
   bytes = File.read!("c_src/Elixir.#{module}.types")
               map = :erlang.binary_to_term(bytes)
 
-              #module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
 
 
               resp = Map.get(map,String.to_atom("#{kernelname}"))
-              #IO.inspect resp
               resp
 end
 ####################################
@@ -734,35 +698,23 @@ end
 ##### and leave a call to spawn
 
 def spawn(k,t,b,l) do
- # prev = System.monotonic_time()
   kernel_name = JIT.get_kernel_name(k)
   {kast,fun_graph} = case load_ast(k) do
             {a,g} -> {a,g}
             nil -> raise "Unknown kernel #{inspect kernel_name}"
   end
-  #IO.inspect kast
-  #IO.inspect fun_graph
-  #raise "hell"
   {kast,l} = JIT.closure_elimination(kast,l)
 
   delta = JIT.gen_types_delta(kast,l)
-  #IO.inspect "Delta: #{inspect delta}"
   inf_types = JIT.infer_types(kast,delta)
-  #IO.inspect "inf type: #{inspect inf_types}"
-  #raise "hell"
   subs = JIT.get_function_parameters(kast,l)
-  #IO.inspect subs
   kernel =JIT.compile_kernel(kast,inf_types,subs)
-  #IO.inspect "kernel: #{inspect kernel}"
   funs=JIT.get_function_parameters_and_their_types(kast,l,inf_types)
   other_funs = fun_graph
                 |> Enum.map(fn x -> {x, inf_types[x]} end)
                 |> Enum.filter(fn {_,i} -> i != nil end)
-  #IO.inspect funs
-  #IO.inspect other_funs
   comp = Enum.map(funs++other_funs,&JIT.compile_function/1)
   comp = Enum.reduce(comp,[], fn x, y -> y++x end)
-  #IO.puts comp
   includes = JIT.get_includes()
   prog = [includes| comp] ++[kernel]
 
@@ -771,8 +723,6 @@ def spawn(k,t,b,l) do
  
   args = process_args_no_fun(l)
   types_args = JIT.get_types_para(kast,inf_types)
-  
-  #IO.puts prog
  
   jit_compile_and_launch_nif(Kernel.to_charlist(kernel_name),Kernel.to_charlist(prog),t,b, length(args), types_args,args)
 
@@ -788,7 +738,6 @@ end
 #######################################
 
 def spawn_st({:func, k, type}, t,b,l) do
-  #IO.puts "Aqui!"
   f_name= case Macro.escape(k) do
     {:&, [],[{:/, [], [{{:., [], [_module, f_name]}, [no_parens: true], []}, _nargs]}]} -> f_name
      _ -> raise "Argument to spawn should be a function."
@@ -809,8 +758,6 @@ def spawn_st({:func, k, type}, t,b,l) do
 end
 
 def spawn_st(k,t,b,l) when is_function(k) do
-   #IO.inspect k
-   #raise "hell"
 
   f_name= case Macro.escape(k) do
     {:&, [],[{:/, [], [{{:., [], [_module, f_name]}, [no_parens: true], []}, _nargs]}]} -> f_name
