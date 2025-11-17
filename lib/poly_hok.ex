@@ -135,68 +135,6 @@ end
 
   end
 
-  #####################
-  #####
-  ##### Legacy code:  gptype macro ##########
-  #####
-  ##########################
-
-  defmacro deft({func,_,[type]}) do
-
-    if (nil == Process.whereis(:gptype_server)) do
-      pid = spawn_link(fn -> gptype_server() end)
-      Process.register(pid, :gptype_server)
-    end
-    send(:gptype_server,{:add_type, func,type_to_list(type)})
-    #IO.inspect(type_to_list(type))
-    quote do
-    end
-  end
-  def gptype_server(), do: gptype_server_(Map.new())
-  defp gptype_server_(map) do
-    receive do
-      {:add_type, fun, types}  -> map=Map.put(map,fun, types)
-                              gptype_server_(map)
-      {:get_type, pid,fun} -> type=Map.get(map,fun)
-                              send(pid,{:type,fun,type})
-                              gptype_server_(map)
-      {:kill}               -> :dead
-    end
-  end
-  defp type_to_list({:integer,_,_}), do: [:int]
-  defp type_to_list({:unit,_,_}), do: [:unit]
-  defp type_to_list({:float,_,_}), do: [:float]
-  defp type_to_list({:gmatrex,_,_}), do: [:matrex]
-  defp type_to_list([type]), do: [type_to_list(type)]
-  defp type_to_list({:~>,_, [a1,a2]}), do: type_to_list(a1) ++ type_to_list(a2)
-  defp type_to_list({x,_,_}), do: raise "Unknown type constructor #{x}"
-  def is_typed?() do
-    nil != Process.whereis(:gptype_server)
-  end
-  def get_type_kernel(fun_name) do
-    send(:gptype_server,{:get_type, self(),fun_name})
-    receive do
-      {:type,fun,type} -> if fun == fun_name do
-                                send(:gptype_server,{:kill})
-                                type
-                          else
-                                raise "Asked for #{fun_name} got #{fun}"
-                          end
-      end
-
-    end
-    def get_type_fun(fun_name) do
-      send(:gptype_server,{:get_type, self(),fun_name})
-      receive do
-        {:type,fun,type} -> if fun == fun_name do
-                                  type
-                            else
-                                  raise "Asked for #{fun_name} got #{fun}"
-                            end
-        end
-
-      end
-
 ######################################
 #########
 ########   GNX stuff
