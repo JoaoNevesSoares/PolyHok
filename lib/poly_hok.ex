@@ -3,7 +3,7 @@ defmodule PolyHok do
   def load_nifs do
       :erlang.load_nif("./priv/gpu_nifs", 0)
   end
-  
+
   defmacro clo({:fn, aa, [{:->, bb , [para,body]}] }) do
      body =  PolyHok.CudaBackend.add_return(body)
      funs = JIT.find_functions({:fn, aa, [{:->, bb , [para,body]}] })
@@ -16,11 +16,11 @@ defmodule PolyHok do
      free = Enum.map(free, fn p -> String.to_atom(name <> Atom.to_string(p)) end)
      function = {:fn, aa, [{:->, bb , [para ++ extra,body]}] }
 
-     resp =  quote(do: {:closure, 
+     resp =  quote(do: {:closure,
                         unquote(name),
                         {unquote(Macro.escape function),
-                        unquote(funs)}, 
-                        unquote(free), 
+                        unquote(funs)},
+                        unquote(free),
                         unquote(extra)})
      resp
    end
@@ -337,59 +337,6 @@ def create_gpu_array_nx_nif(_matrex,_l,_c,_type) do
   raise "NIF create_gpu_array_nx_nif/4 not implemented"
 end
 
-
-
-
-######################################
-#########
-########   GNX stuff OLD
-#######
-##############################
-
-# def get_type_gnx_({:nx, type, _shape, _name , _ref}) do
-#   type
-# end
-# def get_shape_gnx_({:nx, _type, shape, _name , _ref}) do
-#   shape
-# end
-# def new_gnx_((%Nx.Tensor{data: data, type: type, shape: shape, names: name}) ) do
-#   %Nx.BinaryBackend{ state: array} = data
-#   {l,c} = case shape do
-#     {c} -> {1,c}
-#     {l,c} -> {l,c}
-#   end
-#   ref = case type do
-#      {:f,32} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("float"))
-#      {:f,64} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("double"))
-#      {:s,32} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("int"))
-#      x -> raise "new_gmatrex: type #{x} not suported"
-#   end
-#   {:nx, type, shape, name , ref}
-# end
-# def new_gnx_(l,c,type) do
-#
-#   ref = case type do
-#     {:f,32} -> new_gpu_nx_nif(l,c,Kernel.to_charlist("float"))
-#     {:f,64} -> new_gpu_nx_nif(l,c,Kernel.to_charlist("double"))
-#     {:s,32} -> new_gpu_nx_nif(l,c,Kernel.to_charlist("int"))
-#     x -> raise "new_gmatrex: type #{x} not suported"
-#  end
-#
-#  {:nx, type, {l,c}, [nil] , ref}
-# end
-#
-# def get_gnx_({:nx, type, shape, name , ref}) do
-#   {l,c} = shape
-#   ref = case type do
-#     {:f,32} -> get_nx_nif(ref,l,c,Kernel.to_charlist("float"))
-#     {:f,64} -> get_nx_nif(ref,l,c,Kernel.to_charlist("double"))
-#     {:s,32} -> get_nx_nif(ref,l,c,Kernel.to_charlist("int"))
-#     x -> raise "new_gnx: type #{x} not suported"
-#  end
-#
-#   %Nx.Tensor{data: %Nx.BinaryBackend{ state: ref}, type: type, shape: shape, names: name}
-# end
-
 def new_gpu_nx_nif(_l,_c,_type) do
   raise "NIF get_nx_nif/4 not implemented"
 end
@@ -420,31 +367,6 @@ def new_pinned(list) do
   size = length(list)
   {new_pinned_nif(list,size), {1,size}}
 end
-def new_gmatrex(%Matrex{data: matrix} = a) do
-  ref=create_ref_nif(matrix)
-  {ref, Matrex.size(a)}
-end
-
-def new_gmatrex((%Nx.Tensor{data: data, type: type, shape: shape, names: name}) ) do
-  %Nx.BinaryBackend{ state: array} = data
-  {l,c} = shape
-  ref = case type do
-     {:f,32} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("float"))
-     {:f,64} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("double"))
-     {:s,32} -> create_nx_ref_nif(array,l,c,Kernel.to_charlist("int"))
-     x -> raise "new_gmatrex: type #{x} not suported"
-  end
-  {:nx, type, shape, name , ref}
-end
-def new_gmatrex({array,{l,c}}) do
-  ref=new_gmatrex_pinned_nif(array)
-  {ref, {l,c}}
-end
-
-def new_gmatrex(r,c) do
-  ref=new_ref_nif(c)
-  {ref, {r,c}}
-  end
 
 def gmatrex_size({_r,{l,size}}), do: {l,size}
 
@@ -720,10 +642,10 @@ def spawn(k,t,b,l) do
 
   prog = Enum.reduce(prog,"", fn x, y -> y<>x end)
 
- 
+
   args = process_args_no_fun(l)
   types_args = JIT.get_types_para(kast,inf_types)
- 
+
   jit_compile_and_launch_nif(Kernel.to_charlist(kernel_name),Kernel.to_charlist(prog),t,b, length(args), types_args,args)
 
 
