@@ -1,16 +1,4 @@
 require PolyHok
-#PolyHok.defmodule SkeKernels do
-#
-# defk map_step_2_para_no_resp_kernel(d_array,  step, par1, par2,size,f) do
-#    globalId  = blockDim.x * ( gridDim.x * blockIdx.y + blockIdx.x ) + threadIdx.x
-#    id  = step * globalId
-#    #f(id,id)
-#    if (globalId < size) do
-#      f(d_array+id,par1,par2)
-#    end
-#  end
-#
-#end
 
 PolyHok.defmodule Ske do
   #defmacro __using__(_opts) do
@@ -182,7 +170,7 @@ end
 
       result_gpu
   end
-  
+
   defk map_coord_2D_no_resp_kernel(d_array,  step,sizex,sizey,f) do
 
     x = threadIdx.x + blockIdx.x * blockDim.x
@@ -214,14 +202,14 @@ end
                              {l,c,step} -> {l,c,step}
                              x -> raise "Invalid shape for a 2D map: #{inspect x}!"
                            end
- 
+
      #IO.inspect {sizex,sizey,step}
      #modificacao raytracer
      ###block_size = 16
      ###grid_rows = trunc ((sizex + block_size - 1) / block_size)
      ###grid_cols = trunc ((sizey + block_size - 1) / block_size)
- 
- 
+
+
      ###PolyHok.spawn(&Ske.map_coord_2D_no_resp_kernel/5,{grid_cols,grid_rows,1},{block_size,block_size,1},[d_array,step,sizex,sizey,f])
      PolyHok.spawn(&Ske.map_coord_2D_no_resp_kernel/5,{sizex,sizey,1},{1,1,1},[d_array,step,sizex,sizey,f])
        d_array
