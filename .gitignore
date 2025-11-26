@@ -2,3 +2,5 @@ _build/
 deps/
 mix.lock
 priv/
+examples_paper/
+benchmarks/
