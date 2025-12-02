@@ -17,18 +17,6 @@ defmodule PolyHok.CudaBackend do
         JIT.process_module(unquote(module_name),unquote(Macro.escape body))
       end
     end
-    #IO.inspect using
-    #IO.inspect new_body
-    #using = {:defmacro, [line: 16, column: 3],
-    #  [
-    #  {:__using__, [line: 16, column: 12],
-    #  [{:_opts, [line: 16, column: 22], nil}]},
-    #  [
-    #   do: {{:., [line: 17, column: 10],
-    #     [{:__aliases__, [line: 17, column: 8], [:IO]}, :puts]},
-    #    [line: 17, column: 11], ["You are USIng!"]}
-    #  ]
-    #]}
     new_module = quote do
       defmodule (unquote(header)) do
        unquote([using|new_body])
