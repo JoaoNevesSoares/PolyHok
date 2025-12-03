@@ -11,12 +11,6 @@ defmodule PolyHok.MixProject do
     ]
   end
 
-  def application do
-    [
-      extra_applications: [:logger]
-    ]
-  end
-
   defp deps do
     [
       {:matrex, "~> 0.6"},
