@@ -1,182 +1,259 @@
 defmodule Fusion do
   require PolyHok
 
-  defp extract_ske_map({{:., _m1, [{:__aliases__, _m2, [:Ske]}, :map]}, _m3, args}) do
-    {:ok, args}
+  defmodule AstCall do
+    @moduledoc false
+
+    @doc """
+     :ske        -> :map, :reduce, :scan...
+     :data_ast   -> input arrays for skeletons and scalars
+     :kernel_ast -> raw AST
+    """
+    defstruct [:ske, :data_ast, :kernel_ast]
   end
 
-  defp extract_phok({{:., _m1, [{:__aliases__, _m2, [:PolyHok]}, :phok]}, _m3, [fun_ast]}) do
-    {:ok, fun_ast}
+  defp new_skecall(ske_name, data_ast, kernel_ast) do
+    %AstCall{
+      ske: ske_name,
+      data_ast: data_ast,
+      kernel_ast: kernel_ast
+    }
   end
 
-  defp peel_fn({:fn, _m, [{:->, _m2, [[param], body]}]}) do
-    {param, body}
+  defp parse_ske_call({{:., _meta1, [{_alias, _meta2, [:Ske]}, ske_name]}, _meta3, args})
+       when ske_name in [:map, :map2, :reduce] do
+    do_parse_ske_call(ske_name, args)
   end
 
-  defp normalize_kernel_ops(ast) do
-    case ast do
-      # Kernel.+(...)
-      {{:., meta, [{:__aliases__, _, [:Kernel]}, op]}, call_meta, args}
-      when op in [:+, :-, :*, :/, :div, :rem] ->
-        {op, Keyword.merge(call_meta, meta), Enum.map(args, &normalize_kernel_ops/1)}
-
-      {form, meta, args} when is_list(args) ->
-        {form, meta, Enum.map(args, &normalize_kernel_ops/1)}
-
-      list when is_list(list) ->
-        Enum.map(list, &normalize_kernel_ops/1)
-
-      other ->
-        other
-    end
-  end
-
-  defp collect_param_names({n, _m, _ctx}) when is_atom(n), do: [n]
-
-  defp collect_param_names({:=, _m, [lhs, _rhs]}), do: collect_param_names(lhs)
-
-  defp collect_param_names({_, _m, list}) when is_list(list),
-    do: Enum.flat_map(list, &collect_param_names/1)
-
-  defp collect_param_names(list) when is_list(list),
-    do: Enum.flat_map(list, &collect_param_names/1)
-
-  defp collect_param_names(_), do: []
-
-  defp put_meta({name, meta, ctx}, new_meta) when is_atom(name),
-    do: {name, Keyword.merge(new_meta, meta), ctx}
-
-  defp put_meta(other, _), do: other
-
-  defp replace_in_clause({:->, m, [params, body]}, name, replacement) do
-    param_names = params |> Enum.flat_map(&collect_param_names/1) |> MapSet.new()
-
-    new_body =
-      if MapSet.member?(param_names, name) do
-        body
-      else
-        replace_var(body, name, replacement)
+  defp do_parse_ske_call(ske_name, args) do
+    {data_ast, kernel_ast} =
+      case {ske_name, args} do
+        {:map, [kernel_ast]} -> {nil, kernel_ast}
+        {:map, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
+        {:map2, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
+        {:map2, [data1, data2, kernel_ast]} -> {[data1, data2], kernel_ast}
+        {:reduce, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
       end
 
-    {:->, m, [params, new_body]}
+    new_skecall(ske_name, data_ast, kernel_ast)
   end
 
-  defp replace_var(ast, name, replacement) when is_atom(name) do
-    case ast do
-      {:fn, m, clauses} ->
-        {:fn, m, Enum.map(clauses, &replace_in_clause(&1, name, replacement))}
+  defp split_body_and_return(body) do
+    body = List.wrap(body)
 
-      {^name, meta, ctx} when is_atom(ctx) or is_nil(ctx) ->
-        put_meta(replacement, meta)
+    case body do
+      [] ->
+        raise ArgumentError, "Empty function body in split_body_and_return/1"
 
-      {form, meta, args} when is_list(args) ->
-        {form, meta, Enum.map(args, &replace_var(&1, name, replacement))}
+      _ ->
+        {prefix, [last]} = Enum.split(body, length(body) - 1)
 
-      list when is_list(list) ->
-        Enum.map(list, &replace_var(&1, name, replacement))
+        case last do
+          {:return, _meta, [expr]} ->
+            {prefix, expr}
 
-      other ->
-        other
+          other ->
+            {prefix, other}
+        end
     end
   end
 
-  defp extract_device_name({:/, _, [inner, 1]}) do
-    case inner do
-      {{:., _, [_mod_ast, fun_name]}, _, _} when is_atom(fun_name) ->
-        fun_name
+  defp merge_two_function(f_args, f_body, [x_arg], g_body) do
+    f_body = List.wrap(f_body)
+    g_body = List.wrap(g_body)
 
-      {fun_name, _, _} when is_atom(fun_name) ->
-        fun_name
+    {x_var, x_meta, x_ctx} = x_arg
+    tmp_x_var = :"tmp_#{x_var}"
+    tmp_x_ast = {tmp_x_var, x_meta, x_ctx}
+    {f_body_prefix, f_ret_expr} = split_body_and_return(f_body)
+
+    rename_vars_g = fn ast ->
+      Macro.prewalk(ast, fn
+        {var, meta, ctx} = node
+        when is_atom(var) and (is_atom(ctx) or is_nil(ctx)) ->
+          cond do
+            var in [x_var, tmp_x_var, :return, :type] ->
+              node
+
+            true ->
+              {:"tmp_#{var}", meta, ctx}
+          end
+
+        other ->
+          other
+      end)
     end
+
+    g_body1 = rename_vars_g.(g_body)
+
+    g_body2 =
+      Macro.prewalk(g_body1, fn
+        {^x_var, meta, ctx} -> {tmp_x_var, meta, ctx}
+        other -> other
+      end)
+
+    tmp_x_binding = {:=, x_meta, [tmp_x_ast, f_ret_expr]}
+    f_body_prefix ++ [tmp_x_binding | g_body2]
   end
 
-  defp build_fused_device_quote(data_ast, f_device_ast, [g_device_ast]) do
-    f_name = extract_device_name(f_device_ast)
-    g_name = extract_device_name(g_device_ast)
-
-    # variáveis da DSL
-    x_var = {:x, [], nil}
-    y_var = {:y, [], nil}
-
-    # type y int
-    y_type_ast = {:y, [], [{:int, [], []}]}
-    type_y = {:type, [], [y_type_ast]}
-
-    # y = f(x)
-    f_call = {f_name, [], [x_var]}
-    assign_y = {:=, [], [y_var, f_call]}
-
-    # return g(y)
-    g_call = {g_name, [], [y_var]}
-    return_stmt = {:return, [], [g_call]}
-
-    body_block = {:__block__, [], [type_y, assign_y, return_stmt]}
-
-    fused_fn_ast = {:fn, [], [{:->, [], [[x_var], body_block]}]}
+  defp build_map_reduce_call(
+         %AstCall{ske: :map} = lhs,
+         %AstCall{ske: :reduce} = rhs
+       ) do
+    map_f = normalize_kernel_ast(lhs.kernel_ast)
+    red_f = normalize_kernel_ast(rhs.kernel_ast)
 
     quote do
-      Ske.map(
-        unquote(data_ast),
-        PolyHok.phok(unquote(fused_fn_ast))
+      Ske.mapReduce(
+        unquote(lhs.data_ast),
+        unquote(rhs.data_ast),
+        unquote(map_f),
+        unquote(red_f)
       )
     end
   end
 
-  defp build_fused_quote(data_ast, phok_f_wrapped, phok_g_wrapped, _caller_env) do
-    with {:ok, f_ast} <- extract_phok(phok_f_wrapped),
-         {:ok, g_ast} <- extract_phok(phok_g_wrapped) do
-      {f_param, f_body} = peel_fn(f_ast)
-      {g_param, g_body} = peel_fn(g_ast)
+  defp build_map_reduce_call(
+         %AstCall{ske: :map2, data_ast: [t1, t2]} = lhs,
+         %AstCall{ske: :reduce} = rhs
+       ) do
+    map_f = normalize_kernel_ast(lhs.kernel_ast)
+    red_f = normalize_kernel_ast(rhs.kernel_ast)
 
-      f_name =
-        case f_param do
-          {name, _m, _ctx} when is_atom(name) -> name
-          _ -> raise ArgumentError, "Parametro de f não reconhecido"
-        end
-
-      g_name =
-        case g_param do
-          {name, _m, _ctx} when is_atom(name) -> name
-          _ -> raise ArgumentError, "Parametro de g não reconhecido"
-        end
-
-      # f_body continua em termos de f_name (ex: x + 1.0)
-      # g_body(y) vira g_body(f_body(x)) substituindo y por f_body
-      composed_body =
-        g_body
-        |> replace_var(g_name, f_body)
-        # se você ainda estiver usando
-        |> normalize_kernel_ops()
-
-      # |> demote_int_floats()      # opcional, se precisar
-
-      quote do
-        Ske.map(
-          unquote(data_ast),
-          PolyHok.phok(fn unquote(f_param) ->
-            unquote(composed_body)
-          end)
-        )
-      end
-    else
-      _ ->
-        raise ArgumentError, "with_fusion/1 requer PolyHok.phok(fn ... end)"
+    quote do
+      Ske.map2Reduce(
+        unquote(t1),
+        unquote(t2),
+        unquote(rhs.data_ast),
+        unquote(map_f),
+        unquote(red_f)
+      )
     end
   end
 
+  defp build_phok_fun(args, body) do
+    quote do
+      PolyHok.phok(fn unquote_splicing(args) ->
+        (unquote_splicing(body))
+      end)
+    end
+  end
+
+  defp decompose_kernel(kernel_ast) do
+    case kernel_ast do
+      # PolyHok.phok(...)
+      {{:., _, [{:__aliases__, _, [:PolyHok]}, :phok]}, _, _} ->
+        comp_ast_phok(kernel_ast)
+
+      # &Mod.fun/arity
+      {:&, _, _} ->
+        comp_ast_device(kernel_ast)
+
+      other ->
+        raise ArgumentError,
+              "unsupported kernel AST in Fusion: #{Macro.to_string(other)}"
+    end
+  end
+
+  defp comp_ast_phok(
+         {{:., _, [{:__aliases__, _, [:PolyHok]}, :phok]}, _,
+          [{:fn, _, [{:->, _, [args, body_ast]}]}]}
+       ) do
+    {args, normalize_body_ast(body_ast)}
+  end
+
+  defp comp_ast_device(
+         {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, _}, f_name]}, _, []}, f_arity]}]}
+       ) do
+    pid = self()
+    send(:module_server, {:get_ast, f_name, pid})
+
+    {{:defd, _m, fn_body}, _} =
+      receive do
+        {:ast, body} -> body
+      end
+
+    [args | block] = fn_body
+    args = extract_args(args)
+    block = extract_block(block)
+    {args, block}
+  end
+
+  defp extract_args({_name, _m, args}) do
+    args
+  end
+
+  defp extract_block([[do: body_ast]]), do: normalize_body_ast(body_ast)
+  defp extract_block(do: body_ast), do: normalize_body_ast(body_ast)
+
+  defp normalize_body_ast(body_ast) do
+    case body_ast do
+      {:__block__, _m, block_body} when is_list(block_body) ->
+        case block_body do
+          [{:return, _rm, [expr]}] -> [expr]
+          other -> other
+        end
+
+      {:return, _m, [expr]} ->
+        [expr]
+
+      expr ->
+        [expr]
+    end
+  end
+
+  defp normalize_kernel_ast(kernel_ast) do
+    {args, body} = decompose_kernel(kernel_ast)
+    build_phok_fun(args, body)
+  end
+
   defmacro with_fusion({:|>, _m, [lhs, rhs]}) do
-    lhs_match = extract_ske_map(lhs)
-    rhs_match = extract_ske_map(rhs)
+    lhs_call = parse_ske_call(lhs)
+    rhs_call = parse_ske_call(rhs)
+    apply_fusion(lhs_call, rhs_call)
+  end
 
-    case {lhs_match, rhs_match} do
-      {{:ok, [data_ast, {:&, _meta, [f_device]}]}, {:ok, [{:&, _, g_device}]}} ->
-        build_fused_device_quote(data_ast, f_device, g_device)
+  defp apply_fusion(
+         %AstCall{ske: :map} = lhs,
+         %AstCall{ske: :map} = rhs
+       ) do
+    {f_args, f_body} = decompose_kernel(lhs.kernel_ast)
+    {g_args, g_body} = decompose_kernel(rhs.kernel_ast)
 
-      {{:ok, [data_ast, phok_f_ast]}, {:ok, [phok_g_ast]}} ->
-        build_fused_quote(data_ast, phok_f_ast, phok_g_ast, __CALLER__)
+    fused_body = merge_two_function(f_args, f_body, g_args, g_body)
+    fun = build_phok_fun(f_args, fused_body)
 
-      _ ->
-        raise ArgumentError, "Erro na macro with_fusion"
+    quote do
+      Ske.map(unquote(lhs.data_ast), unquote(fun))
+    end
+  end
+
+  defp apply_fusion(
+         %AstCall{ske: ske} = lhs,
+         %AstCall{ske: :reduce} = rhs
+       )
+       when ske in [:map, :map2] do
+    build_map_reduce_call(lhs, rhs)
+  end
+
+  defp apply_fusion(
+         %AstCall{ske: :map2} = lhs,
+         %AstCall{ske: :map2} = rhs
+       ) do
+    {f_args, f_body} = decompose_kernel(lhs.kernel_ast)
+    {g_args, g_body} = decompose_kernel(rhs.kernel_ast)
+
+    [c_arg, d_arg] = g_args
+    {d_atom, m1, m2} = d_arg
+    h_args = f_args ++ [{:"tmp_#{d_atom}", m1, m2}]
+    fused_body = merge_two_function(f_args, f_body, [c_arg], g_body)
+
+    fun = build_phok_fun(h_args, fused_body)
+    [t1, t2] = lhs.data_ast
+    t3 = rhs.data_ast
+
+    quote do
+      Ske.map3(unquote(t1), unquote(t2), unquote(t3), unquote(fun))
     end
   end
 end
