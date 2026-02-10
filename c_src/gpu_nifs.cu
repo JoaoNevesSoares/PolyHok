@@ -31,7 +31,7 @@ void init_cuda(ErlNifEnv *env)
       //  enif_raise_exception(env,enif_make_string(env, message, ERL_NIF_LATIN1));
       //}
 
-       err = cuCtxCreate(&context, 0, device);
+       err = cuCtxCreate(&context, nullptr, 0, device);
       // printf("Context created: %p",context);
        if(err != CUDA_SUCCESS)  
       { char message[200];
