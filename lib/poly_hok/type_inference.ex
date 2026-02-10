@@ -263,6 +263,7 @@ defmodule PolyHok.TypeInference do
                 map
                 |> Map.put(var,type)
           {:type, _ , [{var,_,[{type,_,_}]}]} ->
+           # IO.puts "var: #{inspect var} type: #{inspect type}"
                   map
                   |> Map.put(var,type)
           {:type, _ , [{var,_,[type]}]} ->
@@ -530,6 +531,8 @@ defp set_type_exp(map,type,exp) do
            end
         end
       {fun, _, args} when is_list(args)->
+        #IO.inspect "FUN"
+       # IO.inspect fun
          type_fun = Map.get(map,fun)
          if( type_fun == nil) do
             #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
