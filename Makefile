@@ -1,7 +1,6 @@
 all: priv/gpu_nifs.so 
 
 priv/gpu_nifs.so: c_src/gpu_nifs.cu
-<<<<<<< HEAD
 	nvcc --shared -g -lcuda -lnvrtc --compiler-options '-fPIC' -o priv/gpu_nifs.so c_src/gpu_nifs.cu
 
 alternative: c_src/gpu_nifs.cu
@@ -15,6 +14,3 @@ alternative: c_src/gpu_nifs.cu
 
 clean:
 	rm priv/gpu_nifs.so
-=======
-	nvcc --shared -g -lcuda -lnvrtc --compiler-options '-fPIC' -o priv/gpu_nifs.so c_src/gpu_nifs.cu
->>>>>>> feature/fusion
