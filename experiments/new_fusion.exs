@@ -25,6 +25,8 @@ defmodule Example do
   require Fusion
   use Ske
 
+
+  
 #   def map2map2() do
 #     a = PolyHok.new_gnx(Nx.tensor([1, 2, 3], type: {:s, 32}))
 #     b = PolyHok.new_gnx(Nx.tensor([10, 20, 30], type: {:s, 32}))
