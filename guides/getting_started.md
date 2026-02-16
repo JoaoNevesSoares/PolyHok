@@ -39,3 +39,18 @@ This repo is an **Elixir-to-CUDA DSL/runtime** for writing GPU kernels in Elixir
 - Execute skeletons (`Ske.map`, `Ske.reduce`, etc.) optionally with `Fusion.with_fusion`.
 - Pull results back with `PolyHok.get_gnx`.
 - Real usage examples live in `experiments/*.exs` (for example `experiments/new_fusion.exs:1`, `experiments/softmax.exs:1`).
+
+## Black-Scholes reference walkthrough
+
+- PolyHok experiment: `experiments/black_scholes_polyhok.exs`
+- CUDA reference: `experiments/black-scholes-cuda/blackscholes.cu`
+- Detailed implementation notes: `guides/black_scholes_implementation.md`
+
+Quick run commands:
+
+```bash
+make
+mix run experiments/black_scholes_polyhok.exs
+nvcc -O3 experiments/black-scholes-cuda/blackscholes.cu -o experiments/black-scholes-cuda/run
+./experiments/black-scholes-cuda/run
+```
