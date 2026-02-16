@@ -728,6 +728,7 @@ defmodule PolyHok do
     prog = [includes | comp] ++ [kernel]
 
     prog = Enum.reduce(prog, "", fn x, y -> y <> x end)
+    maybe_dump_jit_cuda_source(kernel_name, prog)
 
     args = process_args_no_fun(l)
     types_args = JIT.get_types_para(kast, inf_types)
@@ -741,6 +742,25 @@ defmodule PolyHok do
       types_args,
       args
     )
+  end
+
+  defp maybe_dump_jit_cuda_source(kernel_name, prog) do
+    case System.get_env("POLYHOK_DUMP_CUDA_DIR") do
+      nil ->
+        :ok
+
+      "" ->
+        :ok
+
+      dump_dir ->
+        File.mkdir_p!(dump_dir)
+
+        timestamp = System.os_time(:microsecond)
+        filename = "#{kernel_name}_#{timestamp}.cu"
+        path = Path.join(dump_dir, filename)
+        File.write!(path, prog)
+        IO.puts("PolyHok JIT CUDA dumped to: #{path}")
+    end
   end
 
   # spawn that uses function pointers
@@ -784,9 +804,10 @@ defmodule PolyHok do
 
     spawn_nif(pk, t, b, args)
   end
-  def spawn_st(_k, _t, _b, _l), do: raise "First argument of spawn must be a function.."
 
-  def spawn_nif(_k, _t, _b, _l), do: raise "NIF spawn_nif/1 not implemented"
+  def spawn_st(_k, _t, _b, _l), do: raise("First argument of spawn must be a function..")
+
+  def spawn_nif(_k, _t, _b, _l), do: raise("NIF spawn_nif/1 not implemented")
 
   def jit_compile_and_launch_nif(_n, _k, _t, _b, _size, _types, _l) do
     raise "NIF jit_compile_and_launch_nif/7 not implemented"
