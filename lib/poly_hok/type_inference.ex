@@ -289,25 +289,26 @@ defmodule PolyHok.TypeInference do
             end
 
           {fun, _, args} when is_list(args)->
+            fun_name = normalize_function_name(fun)
             #IO.puts "case function"
            # IO.inspect fun
            # IO.inspect args
           #  IO.puts "#########"
            # raise "hell"
-             type_fun = map[fun]
+             type_fun = map[fun_name]
             # IO.inspect type_fun
               if( type_fun == nil) do
                  # Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
                  {map, infered_type}= infer_types_args(map,args,[])
-                  Map.put(map,fun, {:unit,infered_type})
+                  Map.put(map,fun_name, {:unit,infered_type})
               else
                   case type_fun do
                     :none ->      {map, infered_type}= infer_types_args(map,args,[])
-                                  Map.put(map,fun, {:unit,infered_type})
+                                  Map.put(map,fun_name, {:unit,infered_type})
                     {ret,type} -> {map, infered_type} = set_type_args(map,type,args,[])
                                   case ret do
-                                    :none -> Map.put(map,fun, {:unit, infered_type})
-                                    :unit -> Map.put(map,fun, {:unit, infered_type})
+                                    :none -> Map.put(map,fun_name, {:unit, infered_type})
+                                    :unit -> Map.put(map,fun_name, {:unit, infered_type})
                                     t -> raise "Function #{fun} has return type #{t} as is being used in context :unit"
                                   end
                   end
@@ -358,6 +359,11 @@ defp infer_types_args(map,[h|tail],type) do
                 infer_types_args(map,tail, type ++[nt])
    end
 end
+
+defp normalize_function_name({:., _, [_module_ast, fun_name]}) when is_atom(fun_name), do: fun_name
+defp normalize_function_name(fun_name) when is_atom(fun_name), do: fun_name
+defp normalize_function_name(fun_name), do: fun_name
+
 ####################################################
 defp get_or_insert_var_type(map,var) do
   var_type = Map.get(map,var)
@@ -531,23 +537,24 @@ defp set_type_exp(map,type,exp) do
            end
         end
       {fun, _, args} when is_list(args)->
+        fun_name = normalize_function_name(fun)
         #IO.inspect "FUN"
        # IO.inspect fun
-         type_fun = Map.get(map,fun)
+         type_fun = Map.get(map,fun_name)
          if( type_fun == nil) do
             #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
             {map, infered_type}= infer_types_args(map,args,[])
-             map = Map.put(map,fun, {type,infered_type})
+             map = Map.put(map,fun_name, {type,infered_type})
              map
           else
             case type_fun do
               :none ->      {map, infered_type}= infer_types_args(map,args,[])
-                            map = Map.put(map,fun, {type,infered_type})
+                            map = Map.put(map,fun_name, {type,infered_type})
                             map
               {ret,type_args} -> {map, infered_type} = set_type_args(map,type_args,args,[])
                               cond do
-                                ret == type -> Map.put(map,fun, {type, infered_type})
-                                ret == :none -> Map.put(map,fun, {type, infered_type})
+                                ret == type -> Map.put(map,fun_name, {type, infered_type})
+                                ret == :none -> Map.put(map,fun_name, {type, infered_type})
                                 true           -> raise "Function #{fun} has return type #{ret} and is being used in an #{type} context."
                               end
 
@@ -583,19 +590,20 @@ defp set_type_exp(map,type,exp) do
   defp infer_type_fun(map,exp) do
       case exp do
         {fun, _, args} when is_list(args)->
-          type_fun = Map.get(map,fun)
+          fun_name = normalize_function_name(fun)
+          type_fun = Map.get(map,fun_name)
           if( type_fun == nil) do
              #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
              {map, infered_type}= infer_types_args(map,args,[])
-              map = Map.put(map,fun, {:none,infered_type})
+              map = Map.put(map,fun_name, {:none,infered_type})
               map
            else
              case type_fun do
                :none ->      {map, infered_type}= infer_types_args(map,args,[])
-                             map = Map.put(map,fun, {:none,infered_type})
+                             map = Map.put(map,fun_name, {:none,infered_type})
                              map
                {ret,type_args} -> {map, infered_type} = set_type_args(map,type_args,args,[])
-                                  Map.put(map,fun, {ret, infered_type})
+                                  Map.put(map,fun_name, {ret, infered_type})
 
              end
           end
@@ -669,7 +677,8 @@ end
         {fun, _, _args} ->
             #IO.puts "aqui"
             #raise "hell"
-            type_fun = map[fun]
+            fun_name = normalize_function_name(fun)
+            type_fun = map[fun_name]
             case type_fun do
                 nil -> :none
                 :none -> :none

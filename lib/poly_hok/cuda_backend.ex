@@ -524,6 +524,11 @@ def check_fun(fun) do
              h    -> raise "Unknown message from type server #{inspect h}"
   end
 end
+
+defp normalize_function_name({:., _, [_module_ast, fun_name]}) when is_atom(fun_name), do: fun_name
+defp normalize_function_name(fun_name) when is_atom(fun_name), do: fun_name
+defp normalize_function_name(fun_name), do: fun_name
+
 def gen_cuda_jit(body,types,param_vars,module,subs) do
   # IO.puts "##########################gen cuda"
   # IO.inspect types
@@ -667,9 +672,10 @@ end
           |> Enum.map(&gen_exp/1)
           |> Enum.join(", ")
 
-          nfun = check_fun(fun)
+          fun_name = normalize_function_name(fun)
+          nfun = check_fun(fun_name)
           if nfun == nil do
-            "#{fun}(#{nargs});"
+            "#{fun_name}(#{nargs});"
           else
             "#{nfun}(#{nargs});"
           end
@@ -708,9 +714,10 @@ end
           |> Enum.map(&gen_exp/1)
           |> Enum.join(", ")
 
-          nfun = check_fun(fun)
+          fun_name = normalize_function_name(fun)
+          nfun = check_fun(fun_name)
           if nfun == nil do
-            "#{fun}(#{nargs})"
+            "#{fun_name}(#{nargs})"
           else
             "#{nfun}(#{nargs})"
           end

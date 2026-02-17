@@ -348,6 +348,10 @@ def find_functions({:defd, _i1,[header, [body]]}) do
   MapSet.to_list(funs)
 end
 
+defp normalize_called_function({:., _, [_module_ast, fun_name]}) when is_atom(fun_name), do: fun_name
+defp normalize_called_function(fun_name) when is_atom(fun_name), do: fun_name
+defp normalize_called_function(_fun_name), do: nil
+
 def find_function_calls_body(map,body) do
 
   case body do
@@ -408,11 +412,17 @@ defp find_function_calls_command(map,code) do
        find_function_calls_exp(map,arg)
 
       {fun, _info, args} when is_list(args)->
-        {args,funs} = map
-        if MapSet.member?(args,fun) do
-          map
-        else
-           {args,MapSet.put(funs,fun)}
+        {formal_args,funs} = map
+        case normalize_called_function(fun) do
+          nil ->
+            map
+
+          called_fun ->
+            if MapSet.member?(formal_args, called_fun) do
+              map
+            else
+              {formal_args, MapSet.put(funs, called_fun)}
+            end
         end
       number when is_integer(number) or is_float(number) -> raise "Error: #{inspect number} is a command"
       {str,i1 ,a } -> {str,i1 ,a }
@@ -446,11 +456,17 @@ defp find_function_calls_if(map,[bexp, [do: then]]) do
     {var,_info, nil} when is_atom(var) ->
        map
     {fun,_info, _args} ->
-     {args,funs} = map
-     if MapSet.member?(args,fun) do
-       map
-     else
-        {args,MapSet.put(funs,fun)}
+     {formal_args,funs} = map
+     case normalize_called_function(fun) do
+       nil ->
+         map
+
+       called_fun ->
+         if MapSet.member?(formal_args, called_fun) do
+           map
+         else
+           {formal_args, MapSet.put(funs, called_fun)}
+         end
      end
     float when  is_float(float) -> map
     int   when  is_integer(int) -> map
