@@ -57,7 +57,6 @@ def compile_function({name,type}) do
           k =        PolyHok.CudaBackend.gen_function(fname,param_list,cuda_body,fun_type)
 
           function = "\n" <> k <> "\n\n"
-
           other_funs = fun_graph
                 |> Enum.map(fn x -> {x, inf_types[x]} end)
                 |> Enum.filter(fn {_,i} -> i != nil end)
@@ -188,6 +187,7 @@ def infer_types_actual_parameters([h|t])do
         end
     {:matrex, _kref, _size} -> [:tfloat | infer_types_actual_parameters(t)]
     {:anon,_name,_code} ->     [:none | infer_types_actual_parameters(t)]
+    {:closure, _name, _ast, _args, _param} ->  [:none | infer_types_actual_parameters(t)]
     float when  is_float(float) ->
         [:float | infer_types_actual_parameters(t)]
     int   when  is_integer(int) ->
