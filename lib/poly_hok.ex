@@ -21,7 +21,7 @@ defmodule PolyHok do
     resp =
       quote(
         do:
-          {:closure, unquote(name), {unquote(Macro.escape(function)), unquote(funs)},
+          {:closure, unquote(name), {unquote(Macro.escape(function)), unquote(Macro.escape(funs))},
            unquote(free), unquote(extra)}
       )
 
@@ -33,7 +33,8 @@ defmodule PolyHok do
     funs = JIT.find_functions({:fn, aa, [{:->, bb, [para, body]}]})
     name = "anon_" <> PolyHok.CudaBackend.gen_lambda_name()
     function = {:fn, aa, [{:->, bb, [para, body]}]}
-    resp = quote(do: {:anon, unquote(name), {unquote(Macro.escape(function)), unquote(funs)}})
+    resp =
+      quote(do: {:anon, unquote(name), {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}})
     resp
   end
 
