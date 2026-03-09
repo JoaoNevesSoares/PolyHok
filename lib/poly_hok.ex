@@ -216,108 +216,6 @@ defmodule PolyHok do
     %Nx.Tensor{data: %Nx.BinaryBackend{state: ref}, type: type, shape: shape, names: name}
   end
 
-  # def new_nx_from_function(l, c, type, fun) do
-  #   size = l * c
-  #
-  #   ref =
-  #     case type do
-  #       {:f, 32} -> new_matrix_from_function_f(size - 1, fun, <<fun.()::float-little-32>>)
-  #       {:f, 64} -> new_matrix_from_function_d(size - 1, fun, <<fun.()::float-little-64>>)
-  #       {:s, 32} -> new_matrix_from_function_i(size - 1, fun, <<fun.()::integer-little-32>>)
-  #     end
-  #
-  #   %Nx.Tensor{data: %Nx.BinaryBackend{state: ref}, type: type, shape: {l, c}, names: [nil, nil]}
-  # end
-
-  # defp new_matrix_from_function_d(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_d(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_d(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.()::float-little-64>>
-  #     )
-
-  # defp new_matrix_from_function_i(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_i(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_i(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.()::integer-little-32>>
-  #     )
-
-  # defp new_matrix_from_function_f(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_f(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_f(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.()::float-little-32>>
-  #     )
-
-  ##############################
-  # def new_nx_from_function_arg(l, c, type, fun) do
-  #   size = l * c
-  #
-  #   ref =
-  #     case type do
-  #       {:f, 32} ->
-  #         new_matrix_from_function_f_arg(size - 1, fun, <<fun.(size)::float-little-32>>)
-  #
-  #       {:f, 64} ->
-  #         new_matrix_from_function_d_arg(size - 1, fun, <<fun.(size)::float-little-64>>)
-  #
-  #       {:s, 32} ->
-  #         new_matrix_from_function_i_arg(size - 1, fun, <<fun.(size)::integer-little-32>>)
-  #     end
-  #
-  #   %Nx.Tensor{data: %Nx.BinaryBackend{state: ref}, type: type, shape: {l, c}, names: [nil, nil]}
-  # end
-
-  #######################
-  # defp new_matrix_from_function_d_arg(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_d_arg(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_d_arg(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.(size)::float-little-64>>
-  #     )
-
-  # defp new_matrix_from_function_i_arg(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_i_arg(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_i_arg(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.(size)::integer-little-32>>
-  #     )
-
-  # defp new_matrix_from_function_f_arg(0, _, accumulator), do: accumulator
-
-  # defp new_matrix_from_function_f_arg(size, function, accumulator),
-  #   do:
-  #     new_matrix_from_function_f_arg(
-  #       size - 1,
-  #       function,
-  #       <<accumulator::binary, function.(size)::float-little-32>>
-  #     )
-
-  ##############################
-  # def new_gnx_fake(_size, type) do
-  #   {:nx, type, :shape, :name, :ref}
-  # end
-  #
-  # def new_gnx_fake(%Nx.Tensor{data: _data, type: type, shape: shape, names: name}) do
-  #   {:nx, type, shape, name, :ref}
-  # end
-
   def get_array_type(%Nx.Tensor{data: _data, type: _type, shape: _shape, names: _name} = nx) do
     Nx.type(nx)
   end
@@ -364,11 +262,6 @@ defmodule PolyHok do
     raise "NIF new_gmatrex_pinned_nif/1 not implemented"
   end
 
-  # def new_pinned(list) do
-  #   size = length(list)
-  #   {new_pinned_nif(list, size), {1, size}}
-  # end
-
   def new_ref_nif(_matrex) do
     raise "NIF new_ref_nif/1 not implemented"
   end
@@ -380,11 +273,6 @@ defmodule PolyHok do
   def synchronize() do
     synchronize_nif()
   end
-
-  # def new_ref(size) do
-  #   ref = new_ref_nif(size)
-  #   {ref, {1, size}}
-  # end
 
   def get_matrex_nif(_ref, _rows, _cols) do
     raise "NIF get_matrex_nif/1 not implemented"
@@ -416,23 +304,6 @@ defmodule PolyHok do
       h -> raise "unknown message for function type server #{inspect(h)}"
     end
   end
-
-  # def load_type_ast(kernel) do
-  #   {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, [module]}, kernelname]}, _, []}, _nargs]}]} =
-  #     kernel
-  #
-  #   bytes = File.read!("c_src/Elixir.#{module}.types")
-  #   map_types = :erlang.binary_to_term(bytes)
-  #
-  #   # module_name=String.slice("#{module}",7..-1//1) # Eliminates Elixir.
-  #   type = Map.get(map_types, String.to_atom("#{kernelname}"))
-  #
-  #   bytes = File.read!("c_src/Elixir.#{module}.asts")
-  #   map_asts = :erlang.binary_to_term(bytes)
-  #
-  #   ast = Map.get(map_asts, String.to_atom("#{kernelname}"))
-  #   {type, ast}
-  # end
 
   def load_type(kernel) do
     case Macro.escape(kernel) do
@@ -467,10 +338,6 @@ defmodule PolyHok do
         raise "PolyHok.invalid function"
     end
   end
-
-  # def load_lambda_compilation(_module, lambda, type) do
-  #   {:anon, lambda, type}
-  # end
 
   def load_lambda(lambda) do
     PolyHok.load_fun_nif(to_charlist("Elixir.App"), to_charlist(lambda))
@@ -623,17 +490,6 @@ defmodule PolyHok do
   def type_check_function(k, _narg, a, v),
     do: raise("Wrong number of arguments when calling #{k}. #{inspect(a)} #{inspect(v)} ")
 
-  # def load_type_at_compilation(kernel) do
-  #   {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, [module]}, kernelname]}, _, []}, _nargs]}]} =
-  #     kernel
-  #
-  #   bytes = File.read!("c_src/Elixir.#{module}.types")
-  #   map = :erlang.binary_to_term(bytes)
-  #
-  #   resp = Map.get(map, String.to_atom("#{kernelname}"))
-  #   resp
-  # end
-
   ###########  Spawn with jit compilation, at compilation we build a representation for the kernel: {:ker, its type, its ast} and leave a call to spawn
 
   def spawn(k, t, b, l) do
@@ -679,50 +535,6 @@ defmodule PolyHok do
       args
     )
   end
-
-  # spawn that uses function pointers
-
-  # def spawn_st({:func, k, type}, t, b, l) do
-  #   f_name =
-  #     case Macro.escape(k) do
-  #       {:&, [], [{:/, [], [{{:., [], [_module, f_name]}, [no_parens: true], []}, _nargs]}]} ->
-  #         f_name
-  #
-  #       _ ->
-  #         raise "Argument to spawn should be a function."
-  #     end
-  #
-  #   {:unit, tk} = type
-  #
-  #   type_check_args(f_name, 1, tk, l)
-  #
-  #   args = process_args(l)
-  #   pk = load(k)
-  #   spawn_nif(pk, t, b, args)
-  # end
-  #
-  # def spawn_st(k, t, b, l) when is_function(k) do
-  #   f_name =
-  #     case Macro.escape(k) do
-  #       {:&, [], [{:/, [], [{{:., [], [_module, f_name]}, [no_parens: true], []}, _nargs]}]} ->
-  #         f_name
-  #
-  #       _ ->
-  #         raise "Argument to spawn should be a function."
-  #     end
-  #
-  #   {:unit, tk} = load_type(k)
-  #
-  #   type_check_args(f_name, 1, tk, l)
-  #
-  #   pk = load(k)
-  #
-  #   args = process_args(l)
-  #
-  #   spawn_nif(pk, t, b, args)
-  # end
-  #
-  # def spawn_st(_k, _t, _b, _l), do: raise("First argument of spawn must be a function..")
 
   def spawn_nif(_k, _t, _b, _l), do: raise("NIF spawn_nif/1 not implemented")
 
