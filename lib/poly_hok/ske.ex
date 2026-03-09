@@ -1,6 +1,6 @@
 require PolyHok
 
-PolyHok.defmodule Ske do
+PolyHok.defmodule Ske do 
   include(CAS_Poly)
 
   def map2Reduce(t1, t2, initial, map_f, red_f) do

@@ -242,7 +242,7 @@ def process_module(module_name,body) do
      end
   end
   _defs=case body do
-      {:__block__, [], definitions} ->  process_definitions(module_name,definitions,[])
+      {:__block__, _, definitions} ->  process_definitions(module_name,definitions,[])
       _   -> process_definitions(module_name,[body],[])
   end
 end
@@ -297,14 +297,31 @@ defp process_definitions(module_name,[h|t],l) do
                                         funs = find_functions({:defd , ii, [header,[body]]})
                                         register_function(module_name,fname,{:defd , ii, [header,[body]]},funs)
                                         process_definitions(module_name,t, [{module_name,fname,{:defd , ii, [header,[body]]},funs}|l])
-        {:include, _, [{_,_,[name]}]} ->
-                code = File.read!("c_src/Elixir.#{name}.cu")
-                send(:module_server,{:add_include,code})
-                process_definitions(module_name,t,l)
-        _               -> process_definitions(module_name,t,l)
+        _               -> process_definitions_include(module_name, h, t, l)
 
       end
 end
+
+defp process_definitions_include(module_name, definition, t, l) do
+  case include_module_name(definition) do
+    nil ->
+      process_definitions(module_name, t, l)
+
+    name ->
+      code = File.read!("c_src/Elixir.#{name}.cu")
+      send(:module_server, {:add_include, code})
+      process_definitions(module_name, t, l)
+  end
+end
+
+defp include_module_name({:include, _, [{:__aliases__, _, [name]}]}), do: name
+
+defp include_module_name(
+       {{:., _, [{:__aliases__, _, [:PolyHok]}, :include]}, _, [{:__aliases__, _, [name]}]}
+     ),
+     do: name
+
+defp include_module_name(_definition), do: nil
 
 def register_function(_module_name,fun_name,ast,funs) do
   send(:module_server,{:add_ast,fun_name,ast,funs})

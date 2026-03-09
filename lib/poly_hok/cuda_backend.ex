@@ -4,7 +4,7 @@ defmodule PolyHok.CudaBackend do
   ################
   def gen_new_module(header,body) do
     new_body =  case body do
-          {:__block__, [], definitions} ->  gen_new_definitions(definitions)
+          {:__block__, _, definitions} ->  gen_new_definitions(definitions)
           _   -> gen_new_definitions([body])
     end
 
@@ -32,10 +32,6 @@ defmodule PolyHok.CudaBackend do
 
       gen_new_definitions(t)
   end
-  defp gen_new_definitions([{:include,_,_para}|t]) do
-
-    gen_new_definitions(t)
-end
   defp gen_new_definitions([{:defd , _, [header, _code] }| t]) do
   {fname, comp_info, para} = header
 
@@ -55,8 +51,13 @@ end
     [new_code | gen_new_definitions(t)]
   end
   defp gen_new_definitions([h | t]) do
-      #IO.inspect h
-      [h | gen_new_definitions(t)]
+      case include_module_name(h) do
+        nil ->
+          [h | gen_new_definitions(t)]
+
+        _name ->
+          gen_new_definitions(t)
+      end
   end
 
   ############ Compile PolyHok Module
@@ -67,7 +68,7 @@ end
     Process.register(pid, :types_ast_server)
 
     code = case body do
-        {:__block__, [], definitions} ->  compile_definitions(module_name,definitions)
+        {:__block__, _, definitions} ->  compile_definitions(module_name,definitions)
         _   -> compile_definitions(module_name,[body])
     end
 
@@ -133,14 +134,19 @@ end
           {:defd , _, _ } -> code = compile_function(module_name,h, :none,module_name)
                             rest_code = compile_definitions(module_name,t)
                             code <> rest_code
-          {:include, _, [{_,_,[name]}]} -> #IO.inspect(name)
-                                            code = File.read!("c_src/Elixir.#{name}.cu")
-                                              |>  String.split("\n")
-                                              |>  Enum.drop(1)
-                                              |> Enum.join("\n")
-                                            rest_code = compile_definitions(module_name,t)
-                                            code <> rest_code
-          _               -> compile_definitions(module_name,t)
+          _               ->
+                            case include_module_name(h) do
+                              nil ->
+                                compile_definitions(module_name,t)
+
+                              name ->
+                                code = File.read!("c_src/Elixir.#{name}.cu")
+                                  |>  String.split("\n")
+                                  |>  Enum.drop(1)
+                                  |> Enum.join("\n")
+                                rest_code = compile_definitions(module_name,t)
+                                code <> rest_code
+                            end
 
 
         end
@@ -148,6 +154,15 @@ end
   end
   defp is_type_definition({:deft,_,_}), do: true
   defp is_type_definition(_v), do: false
+
+  defp include_module_name({:include, _, [{:__aliases__, _, [name]}]}), do: name
+
+  defp include_module_name(
+         {{:., _, [{:__aliases__, _, [:PolyHok]}, :include]}, _, [{:__aliases__, _, [name]}]}
+       ),
+       do: name
+
+  defp include_module_name(_definition), do: nil
 
   ###########################
   ############ Compile a kernel
