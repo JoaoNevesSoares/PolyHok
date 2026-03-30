@@ -226,9 +226,8 @@ def get_kernel_name(kernel) do
     _ -> raise "PolyHok.build: invalid kernel"
   end
 end
-#####
-### Processes a module and populates the ast server with information about functions (their ast, and call graph)
-#################
+
+# Processes a module and populates the ast server with information about functions (their ast, and call graph)
 
 def process_module(module_name,body) do
 
@@ -281,7 +280,7 @@ def module_server(types_map,ast_map) do
 end
 
 #############################################
-##### For every function and kernel definition, it registers an ast and and the functions called inside the definition
+##### For every function and kernel definition, it registers an ast and the functions called inside the definition
 #####################
 defp process_definitions(_module_name, [],_l), do: :ok
 defp process_definitions(module_name,[h|t],l) do
@@ -324,6 +323,9 @@ defp include_module_name(
 defp include_module_name(_definition), do: nil
 
 def register_function(_module_name,fun_name,ast,funs) do
+  IO.inspect(fun_name, label: "inspecting fun_name")
+  IO.inspect(ast, label: "inspecting register_fun {ast}")
+  IO.inspect(funs, label: "inspecting register_fun {funs}")
   send(:module_server,{:add_ast,fun_name,ast,funs})
 end
 

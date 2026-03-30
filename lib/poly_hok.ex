@@ -21,8 +21,9 @@ defmodule PolyHok do
     resp =
       quote(
         do:
-          {:closure, unquote(name), {unquote(Macro.escape(function)), unquote(Macro.escape(funs))},
-           unquote(free), unquote(extra)}
+          {:closure, unquote(name),
+           {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}, unquote(free),
+           unquote(extra)}
       )
 
     resp
@@ -33,8 +34,12 @@ defmodule PolyHok do
     funs = JIT.find_functions({:fn, aa, [{:->, bb, [para, body]}]})
     name = "anon_" <> PolyHok.CudaBackend.gen_lambda_name()
     function = {:fn, aa, [{:->, bb, [para, body]}]}
+
     resp =
-      quote(do: {:anon, unquote(name), {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}})
+      quote(
+        do: {:anon, unquote(name), {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}}
+      )
+
     resp
   end
 
@@ -501,6 +506,7 @@ defmodule PolyHok do
         nil -> raise "Unknown kernel #{inspect(kernel_name)}"
       end
 
+    IO.inspect(kast, label: "Kast = ")
     {kast, l} = JIT.closure_elimination(kast, l)
 
     delta = JIT.gen_types_delta(kast, l)
@@ -520,10 +526,13 @@ defmodule PolyHok do
     prog = [includes | comp] ++ [kernel]
 
     prog = Enum.reduce(prog, "", fn x, y -> y <> x end)
-    maybe_dump_jit_cuda_source(kernel_name, prog)
+    # maybe_dump_jit_cuda_source(kernel_name, prog) # uncomment this if needed to check cuda sources
 
     args = process_args_no_fun(l)
     types_args = JIT.get_types_para(kast, inf_types)
+
+    IO.inspect(kernel_name, label: "Kernel name: ")
+    IO.inspect(prog, label: "prog content: ")
 
     jit_compile_and_launch_nif(
       Kernel.to_charlist(kernel_name),
@@ -543,7 +552,6 @@ defmodule PolyHok do
   end
 
   defp maybe_dump_jit_cuda_source(kernel_name, prog) do
-
     case System.get_env("POLYHOK_DUMP_CUDA_DIR") do
       nil ->
         :ok
