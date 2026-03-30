@@ -1,7 +1,7 @@
-defmodule Mm do
-  require PolyHok
-  use Ske
+require PolyHok
+use Ske
 
+PolyHok.defmodule Mm do
   # helper de host: replica um escalar para o shape de outro tensor
   defp replicate_scalar(value, like_tensor) do
     value
@@ -12,21 +12,22 @@ defmodule Mm do
   def soft_max_enhanced() do
     # a = Nx.tensor([-1.3701, 0.7485, 0.1610, -2.0154, 1.0918])
     a =
-  Nx.linspace(-1_000_000, 1_000_000, n: 2_000_000)
-  |> Nx.to_tensor()
+      Nx.linspace(-1_000_000, 1_000_000, n: 2_000_000)
+      |> Nx.to_tensor()
 
     gpu_a = PolyHok.new_gnx(a)
 
-        # 1) max(x) no device
+    # 1) max(x) no device
     gpu_max =
       Ske.reduce(
         gpu_a,
         -1.0e30,
         PolyHok.phok(fn acc, x ->
-          if (x > acc) do
-            return x
+          if x > acc do
+            return(x)
           end
-          return acc
+
+          return(acc)
         end)
       )
 
@@ -41,12 +42,15 @@ defmodule Mm do
     max_vec = replicate_scalar(max_host, a)
     gpu_max_vec = PolyHok.new_gnx(max_vec)
 
-
     # Fusão 1 (denominador)
-    gpu_deno = Ske.map2Reduce(gpu_a, gpu_max_vec,0.0,
-    PolyHok.phok(fn (x, m) -> expf(x-m) end),
-    PolyHok.phok(fn (acc, x) -> acc + x end))
-
+    gpu_deno =
+      Ske.map2Reduce(
+        gpu_a,
+        gpu_max_vec,
+        0.0,
+        PolyHok.phok(fn x, m -> expf(x - m) end),
+        PolyHok.phok(fn acc, x -> acc + x end)
+      )
 
     deno_host =
       gpu_deno
@@ -57,21 +61,28 @@ defmodule Mm do
     deno_vec = replicate_scalar(deno_host, a)
     gpu_deno_vec = PolyHok.new_gnx(deno_vec)
 
-    gpu_softmax = Ske.map3(gpu_a, gpu_max_vec, gpu_deno_vec,
-    PolyHok.phok(fn (x, m, deno) ->
-      nominator = expf(x - m)
-      return nominator / deno
-    end))
+    gpu_softmax =
+      Ske.map3(
+        gpu_a,
+        gpu_max_vec,
+        gpu_deno_vec,
+        PolyHok.phok(fn x, m, deno ->
+          nominator = expf(x - m)
+          return(nominator / deno)
+        end)
+      )
+
     res = PolyHok.get_gnx(gpu_softmax)
-    res= Nx.sum(res)
+    res = Nx.sum(res)
     IO.inspect(res, label: "softmax")
   end
 
   def soft_max() do
-    #a = Nx.tensor([-1.3701, 0.7485, 0.1610, -2.0154, 1.0918])
-        a =
-  Nx.linspace(-1_000_000, 1_000_000, n: 2_000_000)
-  |> Nx.to_tensor()
+    # a = Nx.tensor([-1.3701, 0.7485, 0.1610, -2.0154, 1.0918])
+    a =
+      Nx.linspace(-1_000_000, 1_000_000, n: 2_000_000)
+      |> Nx.to_tensor()
+
     gpu_a = PolyHok.new_gnx(a)
 
     # 1) max(x) no device
@@ -80,10 +91,11 @@ defmodule Mm do
         gpu_a,
         -1.0e30,
         PolyHok.phok(fn acc, x ->
-          if (x > acc) do
-            return x
+          if x > acc do
+            return(x)
           end
-          return acc
+
+          return(acc)
         end)
       )
 
@@ -113,7 +125,7 @@ defmodule Mm do
       Ske.reduce(
         exp_shifted,
         0.0,
-        PolyHok.phok(fn (axx, x) -> axx + x end)
+        PolyHok.phok(fn axx, x -> axx + x end)
       )
 
     # 6) traz denominador para o host como número
@@ -146,7 +158,7 @@ end
 prev = System.monotonic_time()
 Mm.soft_max_enhanced()
 next = System.monotonic_time()
-IO.puts "PolyHok\t#{System.convert_time_unit(next-prev,:native,:millisecond)} "
+IO.puts("PolyHok\t#{System.convert_time_unit(next - prev, :native, :millisecond)} ")
 
-#Mm.soft_max()
-#Mm.soft_max_enhanced()
+# Mm.soft_max()
+# Mm.soft_max_enhanced()

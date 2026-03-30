@@ -3,9 +3,9 @@ require Integer
 
 PolyHok.defmodule Ni do
   defd compute_xi(i, a, h) do
-    type out float
+    type(out(float))
     out = a + i * h
-    return out
+    return(out)
   end
 end
 
@@ -74,25 +74,21 @@ defmodule NiBenchmark do
     end
 
     fused_fun = fn ->
-      PolyHokInspect.block_inspect do 
-
       Fusion.with_fusion(
-      Ske.map(
-        i_gpu,
-        PolyHok.phok(fn i ->
-          a = 0.0
-          b = 3.1415926535
-          sub = 2.0 * 1_048_575.0
-          h = (b - a) / sub
-          Ni.compute_xi(i, a, h)
-          # a + i * h
-        end)
+        Ske.map(
+          i_gpu,
+          PolyHok.phok(fn i ->
+            a = 0.0
+            b = 3.1415926535
+            sub = 2.0 * 1_048_575.0
+            h = (b - a) / sub
+            a + i * h
+          end)
+        )
+        |> Ske.map(PolyHok.phok(fn xi -> sinf(xi) end))
+        |> Ske.map2(w_gpu, PolyHok.phok(fn fx, wi -> fx * wi end))
+        |> Ske.reduce(0.0, PolyHok.phok(fn x, acc -> acc + x end))
       )
-      |> Ske.map(PolyHok.phok(fn xi -> sinf(xi) end))
-      |> Ske.map2(w_gpu, PolyHok.phok(fn fx, wi -> fx * wi end))
-      )
-      end
-      |> Ske.reduce(0.0, PolyHok.phok(fn x, acc -> acc + x end))
       |> Ske.map(
         PolyHok.phok(fn s ->
           a = 0.0
@@ -114,13 +110,13 @@ defmodule NiBenchmark do
     # end
 
     # Warmup to reduce one-time JIT/compilation overhead in timing output.
-    res = fused_fun.()
-    # _ = fused_fun.()
 
-    # {unfused_res, unfused_ms, unfused_avg} = benchmark(1, unfused_fun)
-    # res = unfused_res
+    _ = unfused_fun.()
+    _ = fused_fun.()
 
-    # {fused_res, fused_ms, fused_avg} = benchmark(runs, fused_fun)
+    {unfused_res, unfused_ms, unfused_avg} = benchmark(30, unfused_fun)
+
+    {fused_res, fused_ms, fused_avg} = benchmark(30, fused_fun)
 
     # diff =
     #   unfused_res
@@ -129,26 +125,26 @@ defmodule NiBenchmark do
     #   |> Nx.to_flat_list()
     #   |> hd()
 
-    # speedup =
-    #   if fused_ms > 0 do
-    #     unfused_ms / fused_ms
-    #   else
-    #     :infinity
-    #   end
+    speedup =
+      if fused_ms > 0 do
+        unfused_ms / fused_ms
+      else
+        :infinity
+      end
 
-    IO.inspect(res, label: "Unfused result (last run)")
+    # IO.inspect(res, label: "Unfused result (last run)")
 
-    # IO.puts(
-    #   "PolyHok.Unfused\truns=#{runs}\ttotal=#{unfused_ms} ms\tavg=#{Float.round(unfused_avg, 3)} ms"
-    # )
+    IO.puts(
+      "PolyHok.Unfused\truns=#{runs}\ttotal=#{unfused_ms} ms\tavg=#{Float.round(unfused_avg, 3)} ms"
+    )
 
-    # IO.inspect(fused_res, label: "Fused result (last run)")
-    #
-    # IO.puts(
-    #   "PolyHok.Fused\t#{n}\truns=#{runs}\ttotal=#{fused_ms} ms\tavg=#{Float.round(fused_avg, 3)} ms"
-    # )
-    #
-    # IO.puts("Speedup (unfused/fused): #{speedup}")
+    IO.inspect(fused_res, label: "Fused result (last run)")
+
+    IO.puts(
+      "PolyHok.Fused\truns=#{runs}\ttotal=#{fused_ms} ms\tavg=#{Float.round(fused_avg, 3)} ms"
+    )
+
+    IO.puts("Speedup (unfused/fused): #{speedup}")
     # IO.puts("Absolute difference (last run): #{diff}")
   end
 end
