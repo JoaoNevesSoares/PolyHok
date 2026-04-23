@@ -74,4 +74,10 @@ defmodule PolyHokInspect do
 
     block
   end
+
+  defmacro left <~> _right do
+    expanded = Macro.expand(left, __CALLER__)
+    IO.inspect(expanded, label: "expanding my macro")
+    expanded
+  end
 end
