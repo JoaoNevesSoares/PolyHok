@@ -1,4 +1,6 @@
 defmodule PolyHok.TypeInference do
+  @operator_functions [:+, :-, :/, :*, :<=, :<, :>, :>=, :!=, :==, :!, :&&, :||]
+
   def type_check(map,body) do
 
     #body = PolyHok.CudaBackend.add_return(body)
@@ -360,9 +362,13 @@ defp infer_types_args(map,[h|tail],type) do
    end
 end
 
-defp normalize_function_name({:., _, [_module_ast, fun_name]}) when is_atom(fun_name), do: fun_name
-defp normalize_function_name(fun_name) when is_atom(fun_name), do: fun_name
-defp normalize_function_name(fun_name), do: fun_name
+  defp normalize_function_name({:., _, [_module_ast, fun_name]}) when is_atom(fun_name), do: fun_name
+  defp normalize_function_name(fun_name) when is_atom(fun_name), do: fun_name
+  defp normalize_function_name(fun_name), do: fun_name
+
+  defp builtin_function_type(:rsqrtf), do: {:float, [:float]}
+  defp builtin_function_type(:sqrtf), do: {:float, [:float]}
+  defp builtin_function_type(_fun_name), do: nil
 
 ####################################################
 defp get_or_insert_var_type(map,var) do
@@ -399,7 +405,7 @@ end
 
 ###################################################################
 
-defp set_type_exp(map,type,exp) do
+  defp set_type_exp(map,type,exp) do
     case exp do
       {{:., info, [Access, :get]}, _, [arg1,arg2]} ->
        case type do
@@ -540,7 +546,7 @@ defp set_type_exp(map,type,exp) do
         fun_name = normalize_function_name(fun)
         #IO.inspect "FUN"
        # IO.inspect fun
-         type_fun = Map.get(map,fun_name)
+         type_fun = Map.get(map,fun_name) || builtin_function_type(fun_name)
          if( type_fun == nil) do
             #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
             {map, infered_type}= infer_types_args(map,args,[])
@@ -591,25 +597,29 @@ defp set_type_exp(map,type,exp) do
       case exp do
         {fun, _, args} when is_list(args)->
           fun_name = normalize_function_name(fun)
-          type_fun = Map.get(map,fun_name)
-          if( type_fun == nil) do
-             #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
-             {map, infered_type}= infer_types_args(map,args,[])
-              map = Map.put(map,fun_name, {:none,infered_type})
+          cond do
+            fun_name in @operator_functions ->
               map
-           else
-             case type_fun do
-               :none ->      {map, infered_type}= infer_types_args(map,args,[])
-                             map = Map.put(map,fun_name, {:none,infered_type})
-                             map
-               {ret,type_args} -> {map, infered_type} = set_type_args(map,type_args,args,[])
-                                  Map.put(map,fun_name, {ret, infered_type})
 
-             end
+            true ->
+              type_fun = Map.get(map,fun_name) || builtin_function_type(fun_name)
+
+              if( type_fun == nil) do
+             #Enum.reduce(args,map, fn v,acc -> infer_type_exp(acc,v) end)
+                {map, infered_type}= infer_types_args(map,args,[])
+                map = Map.put(map,fun_name, {:none,infered_type})
+                map
+              else
+                case type_fun do
+                  :none ->      {map, infered_type}= infer_types_args(map,args,[])
+                                map = Map.put(map,fun_name, {:none,infered_type})
+                                map
+                  {ret,type_args} -> {map, infered_type} = set_type_args(map,type_args,args,[])
+                                     Map.put(map,fun_name, {ret, infered_type})
+
+                end
+              end
           end
-
-
-
 
         _ -> map
        end
@@ -678,7 +688,7 @@ end
             #IO.puts "aqui"
             #raise "hell"
             fun_name = normalize_function_name(fun)
-            type_fun = map[fun_name]
+            type_fun = map[fun_name] || builtin_function_type(fun_name)
             case type_fun do
                 nil -> :none
                 :none -> :none
