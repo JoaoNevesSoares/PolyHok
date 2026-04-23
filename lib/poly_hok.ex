@@ -506,7 +506,7 @@ defmodule PolyHok do
         nil -> raise "Unknown kernel #{inspect(kernel_name)}"
       end
 
-    IO.inspect(kast, label: "Kast = ")
+    # IO.inspect(kast, label: "Kast = ")
     {kast, l} = JIT.closure_elimination(kast, l)
 
     delta = JIT.gen_types_delta(kast, l)
@@ -526,13 +526,14 @@ defmodule PolyHok do
     prog = [includes | comp] ++ [kernel]
 
     prog = Enum.reduce(prog, "", fn x, y -> y <> x end)
+
     # maybe_dump_jit_cuda_source(kernel_name, prog) # uncomment this if needed to check cuda sources
 
     args = process_args_no_fun(l)
     types_args = JIT.get_types_para(kast, inf_types)
 
-    IO.inspect(kernel_name, label: "Kernel name: ")
-    IO.inspect(prog, label: "prog content: ")
+    # IO.inspect(kernel_name, label: "Kernel name: ")
+    # IO.inspect(prog, label: "prog content: ")
 
     jit_compile_and_launch_nif(
       Kernel.to_charlist(kernel_name),
@@ -569,4 +570,85 @@ defmodule PolyHok do
         IO.puts("PolyHok JIT CUDA dumped to: #{path}")
     end
   end
+
+  def new_nx_from_function(l, c, type, fun) do
+    size = l * c
+
+    ref =
+      case type do
+        {:f, 32} -> new_matrix_from_function_f(size - 1, fun, <<fun.()::float-little-32>>)
+        {:f, 64} -> new_matrix_from_function_d(size - 1, fun, <<fun.()::float-little-64>>)
+        {:s, 32} -> new_matrix_from_function_i(size - 1, fun, <<fun.()::integer-little-32>>)
+      end
+
+    %Nx.Tensor{data: %Nx.BinaryBackend{state: ref}, type: type, shape: {l, c}, names: [nil, nil]}
+  end
+  #######################
+defp new_matrix_from_function_d(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_d(size, function, accumulator),
+    do:
+      new_matrix_from_function_d(
+        size - 1,
+        function,
+        <<accumulator::binary, function.()::float-little-64>>
+      )
+defp new_matrix_from_function_i(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_i(size, function, accumulator),
+    do:
+      new_matrix_from_function_i(
+        size - 1,
+        function,
+        <<accumulator::binary, function.()::integer-little-32>>
+      )
+defp new_matrix_from_function_f(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_f(size, function, accumulator),
+    do:
+      new_matrix_from_function_f(
+        size - 1,
+        function,
+        <<accumulator::binary, function.()::float-little-32>>
+      )
+##############################
+def new_nx_from_function_arg(l,c,type, fun) do
+  size = l*c
+  ref =case type do
+    {:f,32} -> new_matrix_from_function_f_arg(size-1,fun, <<fun.(size)::float-little-32>>)
+    {:f,64} -> new_matrix_from_function_d_arg(size-1,fun, <<fun.(size)::float-little-64>>)
+    {:s,32} -> new_matrix_from_function_i_arg(size-1,fun, <<fun.(size)::integer-little-32>>)
+  end
+   %Nx.Tensor{data: %Nx.BinaryBackend{ state: ref}, type: type, shape: {l,c}, names:  [nil,nil]}
+end
+
+#######################
+defp new_matrix_from_function_d_arg(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_d_arg(size, function, accumulator),
+    do:
+      new_matrix_from_function_d_arg(
+        size - 1,
+        function,
+        <<accumulator::binary, function.(size)::float-little-64>>
+      )
+defp new_matrix_from_function_i_arg(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_i_arg(size, function, accumulator),
+    do:
+      new_matrix_from_function_i_arg(
+        size - 1,
+        function,
+        <<accumulator::binary, function.(size)::integer-little-32>>
+      )
+defp new_matrix_from_function_f_arg(0, _, accumulator), do: accumulator
+
+  defp new_matrix_from_function_f_arg(size, function, accumulator),
+    do:
+      new_matrix_from_function_f_arg(
+        size - 1,
+        function,
+        <<accumulator::binary, function.(size)::float-little-32>>
+      )
+##############################
 end
