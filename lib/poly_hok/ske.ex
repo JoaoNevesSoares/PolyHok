@@ -336,18 +336,14 @@ PolyHok.defmodule Ske do
     %{coord: coord, return: return, dim: dim} = Enum.into(options, @defaults)
 
     case dim do
-      :one ->
-        if not coord && not return do
-          map_2_para_no_resp({:nx, type, shape, name, ref}, par1, par2, func)
-        end
+      :one when not coord and not return ->
+        map_2_para_no_resp({:nx, type, shape, name, ref}, par1, par2, func)
 
-        if not coord && return do
-        end
+      :two when coord and not return ->
+        map_coord_2D_2_para_no_resp({:nx, type, shape, name, ref}, par1, par2, func)
 
-      :two ->
-        if coord && not return do
-          map_coord_2D_2_para_no_resp({:nx, type, shape, name, ref}, par1, par2, func)
-        end
+      _ ->
+        raise "Unsupported options for Ske.map/4 with two parameters: #{inspect(options)}"
     end
   end
 
@@ -355,17 +351,11 @@ PolyHok.defmodule Ske do
     %{coord: coord, return: return, dim: dim} = Enum.into(options, @defaults)
 
     case dim do
-      :one ->
-        if not coord && not return do
-        end
+      :two when coord and not return ->
+        map_coord_2D_1_para_no_resp({:nx, type, shape, name, ref}, par1, func)
 
-        if not coord && return do
-        end
-
-      :two ->
-        if coord && not return do
-          map_coord_2D_1_para_no_resp({:nx, type, shape, name, ref}, par1, func)
-        end
+      _ ->
+        raise "Unsupported options for Ske.map/4 with one parameter: #{inspect(options)}"
     end
   end
 
@@ -373,17 +363,11 @@ PolyHok.defmodule Ske do
     %{coord: coord, return: return, dim: dim} = Enum.into(options, @defaults)
 
     case dim do
-      :one ->
-        if not coord && not return do
-        end
+      :two when coord and not return ->
+        map_coord_2D_no_resp({:nx, type, shape, name, ref}, func)
 
-        if not coord && return do
-        end
-
-      :two ->
-        if coord && not return do
-          map_coord_2D_no_resp({:nx, type, shape, name, ref}, func)
-        end
+      _ ->
+        raise "Unsupported options for Ske.map/4 with no parameters: #{inspect(options)}"
     end
   end
 
@@ -587,7 +571,14 @@ PolyHok.defmodule Ske do
 
   def map_2_para_no_resp(d_array, par1, par2, f) do
     block_size = 128
-    {l, step} = PolyHok.get_shape_gnx(d_array)
+    {l, step} =
+      case PolyHok.get_shape_gnx(d_array) do
+        {c} -> {c, 1}
+        {l, step} -> {l, step}
+        {l, c, step} -> {l * c, step}
+        x -> raise "Invalid shape for a 1D map: #{inspect(x)}!"
+      end
+
     size = l * step
     nBlocks = floor((size + block_size - 1) / block_size)
 
