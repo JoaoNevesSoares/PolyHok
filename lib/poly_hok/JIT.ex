@@ -218,15 +218,41 @@ def load_kernel(kernel) do
   end
 end
 def get_kernel_name(kernel) do
-  case Macro.escape(kernel) do
-    {:&, [],[{:/, [], [{{:., [], [_module, kernelname]}, [no_parens: true], []}, _nargs]}]} -> kernelname
-
-
-
-    _ -> raise "PolyHok.build: invalid kernel"
+  case do_get_kernel_name(kernel) do
+      {:ok, kernel_name} -> kernel_name
+      :error -> 
+        case do_get_kernel_name(Macro.escape(kernel)) do
+          {:ok, kernel_name} -> kernel_name
+          :error -> raise "PolyHok.build: invalid kernel"
+        end
   end
 end
 
+
+defp do_get_kernel_name(
+
+       {:&, _meta1,
+
+        [
+
+          {:/, _meta2,
+
+           [
+
+             {{:., _meta3, [_module_ast, kernelname]}, _call_meta, []},
+
+             _nargs
+
+           ]}
+
+        ]}
+
+     ) do
+
+  {:ok, kernelname}
+
+end
+defp do_get_kernel_name(_), do: :error
 # Processes a module and populates the ast server with information about functions (their ast, and call graph)
 
 def process_module(module_name,body) do
