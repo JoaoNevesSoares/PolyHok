@@ -549,7 +549,12 @@ defmodule Fusion do
   end
 
   defmacro {{:.,_,[_, :spawn]},_,call_lhs} <~> {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs} do
-    IO.inspect(call_lhs, label: "Left kernel AST:")
+
+    [kernel_call, _, _, _] = call_lhs
+    IO.inspect(kernel_call)
+    kernel_name = JIT.get_kernel_name(kernel_call)
+    kast = PolyHok.load_ast(kernel_name)
+    IO.inspect(kast, label: "inspecting kernel")
    {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs}
   end
 

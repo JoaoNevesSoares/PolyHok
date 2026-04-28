@@ -228,7 +228,6 @@ def get_kernel_name(kernel) do
   end
 end
 
-
 defp do_get_kernel_name(
 
        {:&, _meta1,
