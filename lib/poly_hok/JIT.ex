@@ -323,9 +323,9 @@ defp include_module_name(
 defp include_module_name(_definition), do: nil
 
 def register_function(_module_name,fun_name,ast,funs) do
-  IO.inspect(fun_name, label: "inspecting fun_name")
-  IO.inspect(ast, label: "inspecting register_fun {ast}")
-  IO.inspect(funs, label: "inspecting register_fun {funs}")
+  # IO.inspect(fun_name, label: "inspecting fun_name")
+  # IO.inspect(ast, label: "inspecting register_fun {ast}")
+  # IO.inspect(funs, label: "inspecting register_fun {funs}")
   send(:module_server,{:add_ast,fun_name,ast,funs})
 end
 

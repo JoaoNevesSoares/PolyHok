@@ -548,6 +548,12 @@ defmodule Fusion do
     build_phok_fun(args, body)
   end
 
+  defmacro left_kernel <~> right_kernel do
+
+    IO.inspect(left_kernel, label: "Left kernel AST:")
+    right_kernel
+  end
+
   defmacro with_fusion(ast, opts \\ []) do
     opts =
       case opts do
