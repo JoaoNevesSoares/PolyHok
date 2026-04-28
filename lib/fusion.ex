@@ -548,10 +548,9 @@ defmodule Fusion do
     build_phok_fun(args, body)
   end
 
-  defmacro left_kernel <~> right_kernel do
-
-    IO.inspect(left_kernel, label: "Left kernel AST:")
-    right_kernel
+  defmacro {{:.,_,[_, :spawn]},_,call_lhs} <~> {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs} do
+    IO.inspect(call_lhs, label: "Left kernel AST:")
+   {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs}
   end
 
   defmacro with_fusion(ast, opts \\ []) do
