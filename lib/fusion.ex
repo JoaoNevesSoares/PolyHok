@@ -38,17 +38,26 @@ defmodule Fusion do
     }
   end
 
-  defp register_read_pattern(spawn_ast_call) do
-    p = new_acesspattern(spawn_ast_call.name)
+  defp register_pattern(spawn_ast_call) do
+    pattern = new_acesspattern(spawn_ast_call.name)
 
-    pp =
-      Enum.reduce(spawn_ast_call.args, p, fn k_arg, p ->
-        add_read(p, k_arg)
-      end)
-
-    IO.inspect(pp)
-    pp
+    Enum.reduce(spawn_ast_call.params, pattern, fn {k_par, _, _}, p ->
+      add_read(p, k_par)
+      |> add_write(k_par)
+    end)
   end
+
+  defp add_write(pattern, key) do
+    new_map =
+      Map.put(
+        pattern.write_pattern,
+        key,
+        MapSet.new()
+      )
+
+    %{pattern | write_pattern: new_map}
+  end
+
   defp add_read(pattern, key) do
     new_map =
       Map.put(
@@ -56,18 +65,31 @@ defmodule Fusion do
         key,
         MapSet.new()
       )
+
     %{pattern | read_pattern: new_map}
   end
 
   def add_read(pattern, key, element) do
-    new_map = 
-  Map.update(
+    new_map =
+      Map.update(
         pattern.read_pattern,
         key,
         MapSet.new([element]),
-fn set -> MapSet.put(set, element) end
+        fn set -> MapSet.put(set, element) end
       )
+
     %{pattern | read_pattern: new_map}
+  end
+
+  def add_write(pattern, key, element) do
+    new_map =
+      Map.update!(
+        pattern.write_pattern,
+        key,
+        fn set -> MapSet.put(set, element) end
+      )
+
+    %{pattern | write_pattern: new_map}
   end
 
   defp new_spawncall(kernel_name, args, params) do
@@ -661,20 +683,47 @@ fn set -> MapSet.put(set, element) end
     body_list
   end
 
+  defp register_write_access(l_value, r_value, kernel_access) do
+    case l_value do
+      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
+      when is_list(meta_dot) and is_list(meta_access) ->
+        if Keyword.get(meta_dot, :from_brackets) == true and
+             Keyword.get(meta_access, :from_brackets) == true do
+          {vec, _, _} = vetor
+          add_write(kernel_access, vec, access_pattern)
+        else
+          kernel_access
+        end
+
+      _ ->
+        kernel_access
+    end
+  end
+
+  defp data_access_analysis(kernel_acess, body_statements) do
+    IO.inspect(body_statements, label: "body list")
+
+    res =
+      Enum.reduce(body_statements, kernel_acess, fn stmt, kernel_acess ->
+        case stmt do
+          {:=, _, [lhs, rhs]} -> register_write_access(lhs, rhs, kernel_acess)
+          _ -> kernel_acess
+        end
+      end)
+
+    IO.inspect(res)
+  end
+
   defmacro {{:., _, [_, :spawn]}, _, call_lhs}
            <~> {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs} do
     [kernel_call, _, _, spawn_arguments] = call_lhs
-    IO.inspect(spawn_arguments)
 
     spawn_call = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
-    t = register_read_pattern(spawn_call)
-    a = add_read(t, {:gpu, [line: 20, column: 55], nil}, 10)
-    IO.inspect(a)
+    t = register_pattern(spawn_call)
     kernel_name = JIT.get_kernel_name(kernel_call)
 
-    PolyHok.load_ast(kernel_name)
-    |> extract_defk_body_to_list()
-    |> IO.inspect()
+    body_stmt = PolyHok.load_ast(kernel_name) |> extract_defk_body_to_list()
+    data_access_analysis(t, body_stmt)
 
     {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
   end
