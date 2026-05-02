@@ -22,6 +22,54 @@ defmodule Fusion do
     defstruct [:name, :args, :params]
   end
 
+  defmodule KernelAcessPattern do
+    @moduledoc false
+    @doc """
+    :name -> :kernel_name
+    :read_pattern
+    :write_pattern 
+    """
+    defstruct [:name, read_pattern: %{}, write_pattern: %{}]
+  end
+
+  defp new_acesspattern(kernel_name) do
+    %KernelAcessPattern{
+      name: kernel_name
+    }
+  end
+
+  defp register_read_pattern(spawn_ast_call) do
+    p = new_acesspattern(spawn_ast_call.name)
+
+    pp =
+      Enum.reduce(spawn_ast_call.args, p, fn k_arg, p ->
+        add_read(p, k_arg)
+      end)
+
+    IO.inspect(pp)
+    pp
+  end
+  defp add_read(pattern, key) do
+    new_map =
+      Map.put(
+        pattern.read_pattern,
+        key,
+        MapSet.new()
+      )
+    %{pattern | read_pattern: new_map}
+  end
+
+  def add_read(pattern, key, element) do
+    new_map = 
+  Map.update(
+        pattern.read_pattern,
+        key,
+        MapSet.new([element]),
+fn set -> MapSet.put(set, element) end
+      )
+    %{pattern | read_pattern: new_map}
+  end
+
   defp new_spawncall(kernel_name, args, params) do
     %SpawnAstCall{
       name: kernel_name,
@@ -618,7 +666,10 @@ defmodule Fusion do
     [kernel_call, _, _, spawn_arguments] = call_lhs
     IO.inspect(spawn_arguments)
 
-    # res = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
+    spawn_call = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
+    t = register_read_pattern(spawn_call)
+    a = add_read(t, {:gpu, [line: 20, column: 55], nil}, 10)
+    IO.inspect(a)
     kernel_name = JIT.get_kernel_name(kernel_call)
 
     PolyHok.load_ast(kernel_name)
