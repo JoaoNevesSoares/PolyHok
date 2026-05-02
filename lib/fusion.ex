@@ -609,13 +609,21 @@ defmodule Fusion do
     new_spawncall(kernel_name, spawn_arguments, kernel_parameters)
   end
 
+  def extract_defk_body_to_list({{:defk, _, [_, [do: {:__block__, _, body_list}]]}, _}) do
+    body_list
+  end
+
   defmacro {{:., _, [_, :spawn]}, _, call_lhs}
            <~> {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs} do
     [kernel_call, _, _, spawn_arguments] = call_lhs
     IO.inspect(spawn_arguments)
 
-    res = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
-    IO.inspect(res)
+    # res = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
+    kernel_name = JIT.get_kernel_name(kernel_call)
+
+    PolyHok.load_ast(kernel_name)
+    |> extract_defk_body_to_list()
+    |> IO.inspect()
 
     {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
   end
