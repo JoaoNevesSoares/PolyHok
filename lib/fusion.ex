@@ -12,6 +12,24 @@ defmodule Fusion do
     defstruct [:ske, :data_ast, :kernel_ast]
   end
 
+  defmodule SpawnAstCall do
+    @moduledoc false
+    @doc """
+    :name        -> :kernel_name
+    :args        -> args passed in spawn to kernel
+    :params      -> params declared in kernel header
+    """
+    defstruct [:name, :args, :params]
+  end
+
+  defp new_spawncall(kernel_name, args, params) do
+    %SpawnAstCall{
+      name: kernel_name,
+      args: args,
+      params: params
+    }
+  end
+
   defp new_skecall(ske_name, data_ast, kernel_ast) do
     %AstCall{
       ske: ske_name,
@@ -548,14 +566,58 @@ defmodule Fusion do
     build_phok_fun(args, body)
   end
 
-  defmacro {{:.,_,[_, :spawn]},_,call_lhs} <~> {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs} do
+  defp find_in_node_list([head | tail], pred) do
+    case find_ast_node(head, pred) do
+      {:ok, node} -> {:ok, node}
+      :not_found -> find_ast_node(tail, pred)
+    end
+  end
 
-    [kernel_call, _, _, _] = call_lhs
-    IO.inspect(kernel_call)
+  defp find_in_node_list([], _pred) do
+    :not_found
+  end
+
+  def find_ast_node(ast_node, predicate) do
+    cond do
+      predicate.(ast_node) ->
+        {:ok, ast_node}
+
+      is_tuple(ast_node) ->
+        ast_node
+        |> Tuple.to_list()
+        |> find_in_node_list(predicate)
+
+      is_list(ast_node) ->
+        find_in_node_list(ast_node, predicate)
+
+      true ->
+        :not_found
+    end
+  end
+
+  defp map_kernel_input_and_parameters(spawn_arguments, kernel_call) do
     kernel_name = JIT.get_kernel_name(kernel_call)
     kast = PolyHok.load_ast(kernel_name)
-    IO.inspect(kast, label: "inspecting kernel")
-   {{:.,module_line,[aliases_tuple, :spawn]}, line, call_rhs}
+
+    {:ok, {^kernel_name, _, kernel_parameters}} =
+      find_ast_node(kast, fn
+        {^kernel_name, _, _} -> true
+        _ -> false
+      end)
+
+    # Enum.zip(spawn_arguments, kernel_parameters)
+    new_spawncall(kernel_name, spawn_arguments, kernel_parameters)
+  end
+
+  defmacro {{:., _, [_, :spawn]}, _, call_lhs}
+           <~> {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs} do
+    [kernel_call, _, _, spawn_arguments] = call_lhs
+    IO.inspect(spawn_arguments)
+
+    res = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
+    IO.inspect(res)
+
+    {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
   end
 
   defmacro with_fusion(ast, opts \\ []) do
