@@ -690,7 +690,8 @@ defmodule Fusion do
         if Keyword.get(meta_dot, :from_brackets) == true and
              Keyword.get(meta_access, :from_brackets) == true do
           {vec, _, _} = vetor
-          add_write(kernel_access, vec, access_pattern)
+          idx_pattern = strip_meta_from_access_indexes(access_pattern)
+          add_write(kernel_access, vec, idx_pattern)
         else
           kernel_access
         end
@@ -707,7 +708,8 @@ defmodule Fusion do
         if Keyword.get(meta_dot, :from_brackets) == true and
              Keyword.get(meta_access, :from_brackets) == true do
           {vec, _, _} = vetor
-          add_read(kernel_access, vec, access_pattern)
+          idx_pattern = strip_meta_from_access_indexes(access_pattern)
+          add_read(kernel_access, vec, idx_pattern)
         else
           kernel_access
         end
@@ -715,6 +717,19 @@ defmodule Fusion do
       _ ->
         kernel_access
     end
+  end
+
+  defp strip_meta_from_access_indexes(ast) do
+    Macro.prewalk(
+      ast,
+      fn
+        {name, meta, args} when is_atom(name) and is_list(meta) ->
+          {name, [], args}
+
+        node ->
+          node
+      end
+    )
   end
 
   defp data_access_analysis(kernel_acess, body_statements) do
@@ -726,24 +741,45 @@ defmodule Fusion do
           {:=, _, [lhs, rhs]} ->
             inter = register_write_access(lhs, kernel_acess)
             register_read_access(rhs, inter)
+
           _ ->
             kernel_acess
         end
       end)
 
-    IO.inspect(res)
+    res
+  end
+
+  defp data_dependency_analysis(k1_access, k2_access) do
+    IO.inspect(k1_access.write_pattern, label: "k1 access struct")
+    IO.inspect(k2_access.read_pattern, label: "k2 access struct")
+    l_map = Map.get(k1_access.write_pattern, :input)
+    r_map = Map.get(k2_access.read_pattern, :input)
+    IO.inspect(l_map, label: "k1 MapSet struct")
+    IO.inspect(r_map, label: "k2 MapSet struct")
   end
 
   defmacro {{:., _, [_, :spawn]}, _, call_lhs}
            <~> {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs} do
     [kernel_call, _, _, spawn_arguments] = call_lhs
+    [rhs_kernel_call, _, _, rhs_spawn_arguments] = call_rhs
 
+    # for kernel LHS
     spawn_call = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
     t = register_pattern(spawn_call)
     kernel_name = JIT.get_kernel_name(kernel_call)
-
     body_stmt = PolyHok.load_ast(kernel_name) |> extract_defk_body_to_list()
-    data_access_analysis(t, body_stmt)
+    acces_analysis = data_access_analysis(t, body_stmt)
+
+    # for kernel RHS
+
+    rhs_spawn_call = map_kernel_input_and_parameters(rhs_spawn_arguments, rhs_kernel_call)
+    rhs_t = register_pattern(rhs_spawn_call)
+    rhs_kernel_name = JIT.get_kernel_name(rhs_kernel_call)
+    rhs_body_stmt = PolyHok.load_ast(rhs_kernel_name) |> extract_defk_body_to_list()
+    rhs_acces_analysis = data_access_analysis(rhs_t, rhs_body_stmt)
+
+    data_dependency_analysis(acces_analysis, rhs_acces_analysis)
 
     {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
   end
