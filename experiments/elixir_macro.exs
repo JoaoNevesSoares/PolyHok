@@ -6,7 +6,7 @@ PolyHok.defmodule Hello do
   defk hello(input) do
     tid = threadIdx.x
     input[tid] = tid + 1
-    # x = input[tid]
+    x = input[0]
   end
 
   defk world(input) do

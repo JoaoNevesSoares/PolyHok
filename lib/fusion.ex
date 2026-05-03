@@ -683,7 +683,7 @@ defmodule Fusion do
     body_list
   end
 
-  defp register_write_access(l_value, r_value, kernel_access) do
+  defp register_write_access(l_value, kernel_access) do
     case l_value do
       {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
       when is_list(meta_dot) and is_list(meta_access) ->
@@ -700,14 +700,34 @@ defmodule Fusion do
     end
   end
 
+  defp register_read_access(r_value, kernel_access) do
+    case r_value do
+      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
+      when is_list(meta_dot) and is_list(meta_access) ->
+        if Keyword.get(meta_dot, :from_brackets) == true and
+             Keyword.get(meta_access, :from_brackets) == true do
+          {vec, _, _} = vetor
+          add_read(kernel_access, vec, access_pattern)
+        else
+          kernel_access
+        end
+
+      _ ->
+        kernel_access
+    end
+  end
+
   defp data_access_analysis(kernel_acess, body_statements) do
     IO.inspect(body_statements, label: "body list")
 
     res =
       Enum.reduce(body_statements, kernel_acess, fn stmt, kernel_acess ->
         case stmt do
-          {:=, _, [lhs, rhs]} -> register_write_access(lhs, rhs, kernel_acess)
-          _ -> kernel_acess
+          {:=, _, [lhs, rhs]} ->
+            inter = register_write_access(lhs, kernel_acess)
+            register_read_access(rhs, inter)
+          _ ->
+            kernel_acess
         end
       end)
 
