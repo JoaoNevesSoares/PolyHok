@@ -1,4 +1,5 @@
 defmodule Fusion do
+  alias Matrex.Threaded
   require PolyHok
 
   defmodule AstCall do
@@ -20,6 +21,41 @@ defmodule Fusion do
     :params      -> params declared in kernel header
     """
     defstruct [:name, :args, :params]
+  end
+
+  defmodule IndexExpr do
+    defstruct [
+      :expr,
+      :range
+    ]
+  end
+
+  defmodule RangeExpr do
+    defstruct [
+      :expr,
+      :range
+    ]
+  end
+
+  defmodule ThreadMapping do
+    defstruct [
+      :tid,
+      :block,
+      :thread,
+      :grid
+    ]
+  end
+
+  defmodule DAD do
+    defstruct [
+      :array,
+      :access_type,
+      :rank,
+      :indices,
+      :guards,
+      :thread_mapping,
+      :precision
+    ]
   end
 
   defmodule KernelAcessPattern do
@@ -755,8 +791,54 @@ defmodule Fusion do
     IO.inspect(k2_access.read_pattern, label: "k2 access struct")
     l_map = Map.get(k1_access.write_pattern, :input)
     r_map = Map.get(k2_access.read_pattern, :input)
-    IO.inspect(l_map, label: "k1 MapSet struct")
-    IO.inspect(r_map, label: "k2 MapSet struct")
+
+    cond do
+      not MapSet.disjoint?(l_map, r_map) and MapSet.subset?(r_map, l_map) ->
+        :fusible_register
+
+      true ->
+        :not_fusible
+    end
+  end
+
+  defp create_fused_kernels(
+         :fusible_register,
+         lhs_body,
+         rhs_body,
+         lhs_call,
+         rhs_call,
+         dependency_list
+       ) do
+    res =
+      Enum.reduce(dependency_list, lhs_body, fn {tensor, pattern}, lhs_body ->
+        Macro.prewalk(lhs_body, fn
+          {{:., _meta_dot, [Access, :get]}, _meta_access, [^tensor, ^pattern]} ->
+            {String.to_atom("fused_in"), [], nil}
+
+          other ->
+            other
+        end)
+      end)
+
+    IO.puts(Macro.to_string(res))
+
+    # doin the same but with the reader side body
+    res_rhs =
+      Enum.reduce(
+        [{{:input, [line: 13, column: 11], nil}, {:tid, [line: 13, column: 17], nil}}],
+        rhs_body,
+        fn {tensor, pattern}, rhs_body ->
+          Macro.prewalk(rhs_body, fn
+            {:=, meta, [lhs, {{:., meta_dot, [Access, :get]}, _meta_access, [^tensor, ^pattern]}]} ->
+              {:=, meta, [lhs, {String.to_atom("fused_in"), [], nil}]}
+
+            other ->
+              other
+          end)
+        end
+      )
+
+    IO.puts(Macro.to_string(res_rhs))
   end
 
   defmacro {{:., _, [_, :spawn]}, _, call_lhs}
@@ -779,7 +861,16 @@ defmodule Fusion do
     rhs_body_stmt = PolyHok.load_ast(rhs_kernel_name) |> extract_defk_body_to_list()
     rhs_acces_analysis = data_access_analysis(rhs_t, rhs_body_stmt)
 
-    data_dependency_analysis(acces_analysis, rhs_acces_analysis)
+    analysis_result = data_dependency_analysis(acces_analysis, rhs_acces_analysis)
+
+    create_fused_kernels(
+      analysis_result,
+      body_stmt,
+      rhs_body_stmt,
+      spawn_call,
+      rhs_spawn_call,
+      [{{:input, [line: 8, column: 5], nil}, {:tid, [line: 8, column: 11], nil}}]
+    )
 
     {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
   end
