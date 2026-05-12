@@ -219,37 +219,154 @@ defmodule BoundAnalysis do
       |> Enum.map(&var_name/1)
       |> Enum.map(fn param -> Map.get(rename_map, param, param) end)
 
-    rhs_params = 
-      rhs_summary.params 
+    rhs_params =
+      rhs_summary.params
       |> Enum.map(&var_name/1)
 
     (lhs_params ++ rhs_params) |> Enum.uniq()
   end
 
+  def build_fused_args(lhs_summary, rhs_summary, rename_map) do
+    # Essa função precisa saber a ordem dos parametros da kernel fusionado
+
+    lhs =
+      lhs_summary.params
+      |> Enum.zip(lhs_summary.args)
+      |> Enum.map(fn {param, arg} ->
+        param_name = var_name(param)
+
+        final_param = Map.get(rename_map, param_name, param_name)
+
+        {final_param, arg}
+      end)
+
+    rhs =
+      rhs_summary.params
+      |> Enum.zip(rhs_summary.args)
+      |> Enum.map(fn {param, arg} ->
+        {var_name(param), arg}
+      end)
+
+    (lhs ++ rhs)
+    |> Enum.uniq_by(fn {param, _arg} -> param end)
+    |> Enum.map(fn {_param, arg} -> arg end)
+  end
+
+  defp rename_vars(ast, rename_map) do
+    Macro.prewalk(ast, fn
+      {name, meta, ctx} = node when is_atom(name) ->
+        case Map.fetch(rename_map, name) do
+          {:ok, new_name} -> {new_name, meta, ctx}
+          :error -> node
+        end
+
+      node ->
+        node
+    end)
+  end
+
+  defp extract_defk_body({{:defk, _meta, [{_name, _call_meta, _params}, [do: body]]}, []}) do
+    body
+  end
+
+  defp clean_var_context(ast) do
+    Macro.prewalk(ast, fn
+      {name, meta, ctx}
+      when is_atom(name) and is_atom(ctx) ->
+        {name, meta, nil}
+
+      node ->
+        node
+    end)
+  end
+
+  defp build_spawn_ast(name, arity, args) do
+    capture_ast =
+      {:&, [],
+       [
+         {:/, [],
+          [
+            {{:., [], [{:__aliases__, [], [:SimpleTest]}, name]}, [no_parens: true], []},
+            arity
+          ]}
+       ]}
+
+    quote do
+      PolyHok.spawn(
+        unquote(capture_ast),
+        {1, 1, 1},
+        {10, 1, 1},
+        [unquote_splicing(args)])
+    end
+  end
+
+  defp build_defk_ast(name, params, bodies) do
+    params_ast =
+      Enum.map(params, fn param ->
+        {param, [], nil}
+      end)
+
+    statements =
+      bodies
+      |> Enum.flat_map(fn
+        {:__block__, _meta, statements} -> statements
+        statements -> [statements]
+      end)
+
+    body_ast =
+      {:__block__, [], statements}
+
+    {:defk, [],
+     [
+       {name, [], params_ast},
+       [do: body_ast]
+     ]}
+  end
+
   defp build_fused_kernel(lhs_summary, rhs_summary, _dependency_list) do
-
     rename_map = lhs_rename_map(lhs_summary, rhs_summary)
-    res = build_fused_params(lhs_summary, rhs_summary, rename_map)
-    IO.inspect(res, label: "params")
-    rx = lhs_summary.args ++ rhs_summary.args |> Enum.uniq()
-    IO.inspect(rx, label: "args")
 
+    fused_params = build_fused_params(lhs_summary, rhs_summary, rename_map)
+
+    fused_args = build_fused_args(lhs_summary, rhs_summary, rename_map)
+
+    lhs_body =
+      lhs_summary.name
+      |> PolyHok.load_ast()
+      |> extract_defk_body()
+      |> rename_vars(rename_map)
+      |> clean_var_context()
+
+    rhs_body =
+      rhs_summary.name
+      |> PolyHok.load_ast()
+      |> extract_defk_body()
+      |> clean_var_context()
+
+    fused_ast =
+      build_defk_ast(:fused, fused_params, [lhs_body, rhs_body])
+      |> clean_var_context()
+
+    # IO.puts(Macro.to_string(fused_ast))
+    # IO.inspect(fused_ast, label: "fused ast")
+
+    send(:module_server, {:add_ast, :fused, fused_ast, []})
+    build_spawn_ast(:fused, length(fused_params), fused_args)
   end
 
   defmacro fuse(lhs, rhs) do
+    IO.inspect(lhs, label: "spawn call")
     sum1 = process_kernel(lhs)
     sum2 = process_kernel(rhs)
     r = raw_dependency_arrays(sum1, sum2)
     IO.inspect(r)
 
-    if(not Enum.empty?(r)) do
-      IO.puts("hehe")
-      build_fused_kernel(sum1, sum2, r)
-    end
-
-    quote do
-      :ok
-    end
+    ast_fused =
+      if(not Enum.empty?(r)) do
+        build_fused_kernel(sum1, sum2, r)
+      end
+    IO.puts(Macro.to_string(ast_fused))
+    ast_fused
   end
 
   defp raw_dependency_arrays(sum1, sum2) do

@@ -42,5 +42,5 @@ fuse(
   )
 )
 
-# result = PolyHok.get_gnx(y_gpu)
-# IO.inspect(result, label: "Result after kernel execution")
+result = PolyHok.get_gnx(z_gpu)
+IO.inspect(result, label: "Result after kernel execution")
