@@ -1,5 +1,4 @@
 defmodule Fusion do
-  alias Matrex.Threaded
   require PolyHok
 
   defmodule AstCall do
@@ -47,6 +46,17 @@ defmodule Fusion do
   end
 
   defmodule DAD do
+    @moduledoc false
+    @doc """
+    :array -> identificador do array
+    :access_type -> :read, :write
+    :rank -> dimensions do array [i,j,k] 
+    :indices -> a tuple containing IndexExpr and RangeExpr
+    :guards -> necessary conditions for pattern be valid, {:lt | :gte, :tid, :N}
+    :ThreadMapping
+    :precison -> :exact | :regular | :unknown  -> computed from lattice
+    """
+
     defstruct [
       :array,
       :access_type,
@@ -737,6 +747,22 @@ defmodule Fusion do
     end
   end
 
+  defp register_dad(stmt) do 
+
+    IO.inspect(stmt, label: "statement")
+    case stmt do 
+      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
+        when is_list(meta_dot) and is_list(meta_access) -> 
+        if Keyword.get(meta_dot, :from_brackets) == true and
+      Keyword.get(meta_access, :from_brackets) == true do 
+      {vec, _, _} = vetor
+          IO.puts("vetor")
+      IO.inspect(vec, label: "vetor aqui")
+        end
+      _ -> []
+    end
+  end
+
   defp register_read_access(r_value, kernel_access) do
     case r_value do
       {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
@@ -766,6 +792,17 @@ defmodule Fusion do
           node
       end
     )
+  end
+
+  defp local_analysis(body_statements) do
+    
+    Enum.reduce(body_statements,[], fn stmt, dad_list -> 
+      case stmt do 
+    {:=, _, [lhs, rhs]} -> 
+          register_dad(lhs)
+    _ -> dad_list
+      end
+    end)
   end
 
   defp data_access_analysis(kernel_acess, body_statements) do
@@ -873,6 +910,13 @@ defmodule Fusion do
     )
 
     {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
+  end
+
+  defmacro test_analysis({{:., _, [_, :spawn]}, _, call}) do
+    [kernel_call, _, _, spawn_arguments] = call
+    kernel_name = JIT.get_kernel_name(kernel_call)
+    body_stmt = PolyHok.load_ast(kernel_name) |> extract_defk_body_to_list()
+    acces_analysis = local_analysis(body_stmt)
   end
 
   defmacro with_fusion(ast, opts \\ []) do

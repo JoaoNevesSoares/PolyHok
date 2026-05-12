@@ -1,24 +1,46 @@
 require PolyHok
-import Fusion
-require PolyHokInspect
+import BoundAnalysis
 
-PolyHok.defmodule Hello do
-  defk hello(input) do
-    tid = threadIdx.x
-    input[tid] = tid + 1
+PolyHok.defmodule SimpleTest do
+  defk saxpy(n, a, x, y) do
+    i = blockIdx.x * blockDim.x + threadIdx.x
+
+    if(i < n) do
+      y[i] = a * x[i] + y[i]
+    end
   end
 
-  defk world(input) do
-    tid = threadIdx.x
-    res = input[tid]
+  defk hell(n, a, y, z) do
+    i = blockIdx.x * blockDim.x + threadIdx.x
+
+    if(i < n) do
+      z[i] = a * y[i]
+    end
   end
 end
 
-host = Nx.tensor(Enum.to_list(1..10), type: :s32)
-gpu = PolyHok.new_gnx(host)
+x_cpu = Nx.tensor(Enum.to_list(1..10), type: {:f, 32})
+y_cpu = Nx.tensor(Enum.to_list(1..10), type: {:f, 32})
+z_cpu = Nx.tensor(Enum.to_list(1..10), type: {:f, 32})
 
-PolyHok.spawn(&Hello.hello/1, {1, 1, 1}, {10, 1, 1}, [gpu])
-<~> PolyHok.spawn(&Hello.world/1, {1, 1, 1}, {10, 1, 1}, [gpu])
+x_gpu = x_cpu |> PolyHok.new_gnx()
+y_gpu = y_cpu |> PolyHok.new_gnx()
+z_gpu = z_cpu |> PolyHok.new_gnx()
 
-res_d = PolyHok.get_gnx(gpu)
-IO.inspect(res_d)
+fuse(
+  PolyHok.spawn(
+    &SimpleTest.saxpy/4,
+    {1, 1, 1},
+    {10, 1, 1},
+    [10, 2.5, x_gpu, y_gpu]
+  ),
+  PolyHok.spawn(
+    &SimpleTest.hell/4,
+    {1, 1, 1},
+    {10, 1, 1},
+    [10, 2.0, y_gpu, z_gpu]
+  )
+)
+
+# result = PolyHok.get_gnx(y_gpu)
+# IO.inspect(result, label: "Result after kernel execution")
