@@ -71,8 +71,6 @@ defmodule BoundAnalysis do
   end
 
   defp equivalent_index?(a, b) do
-    IO.inspect(a, label: "index a:")
-    IO.inspect(b, label: "index b:")
     a == b
   end
 
@@ -265,6 +263,24 @@ defmodule BoundAnalysis do
     end)
   end
 
+  def global_to_register_writes(ast, dependency_list) do
+    # IO.inspect(ast, label: "lhs_ast")
+
+    Enum.reduce(dependency_list, ast, fn array_name, ast ->
+      Macro.prewalk(ast, fn
+        {:=, meta,
+         [
+           {{:., meta_n, [Access, :get]}, meta_d, [{^array_name, _m, nil}, t]},
+           rhs
+         ]} ->
+          {:=, meta, [{:"fused_#{array_name}", [], nil}, rhs]}
+
+        node ->
+          node
+      end)
+    end)
+  end
+
   defp extract_defk_body({{:defk, _meta, [{_name, _call_meta, _params}, [do: body]]}, []}) do
     body
   end
@@ -296,7 +312,8 @@ defmodule BoundAnalysis do
         unquote(capture_ast),
         {1, 1, 1},
         {10, 1, 1},
-        [unquote_splicing(args)])
+        [unquote_splicing(args)]
+      )
     end
   end
 
@@ -323,18 +340,21 @@ defmodule BoundAnalysis do
      ]}
   end
 
-  defp build_fused_kernel(lhs_summary, rhs_summary, _dependency_list) do
+  defp build_fused_kernel(lhs_summary, rhs_summary, dependency_list) do
     rename_map = lhs_rename_map(lhs_summary, rhs_summary)
 
     fused_params = build_fused_params(lhs_summary, rhs_summary, rename_map)
 
     fused_args = build_fused_args(lhs_summary, rhs_summary, rename_map)
 
+    # IO.inspect(dependency_list, label: "dependency list")
+
     lhs_body =
       lhs_summary.name
       |> PolyHok.load_ast()
       |> extract_defk_body()
       |> rename_vars(rename_map)
+      |> global_to_register_writes(dependency_list)
       |> clean_var_context()
 
     rhs_body =
@@ -355,18 +375,19 @@ defmodule BoundAnalysis do
   end
 
   defmacro fuse(lhs, rhs) do
-    IO.inspect(lhs, label: "spawn call")
+    # IO.inspect(lhs, label: "spawn call")
     sum1 = process_kernel(lhs)
     sum2 = process_kernel(rhs)
+    # IO.inspect(sum1, label: "result of process_kernel lhs")
+    # IO.inspect(sum2, label: "result of process_kernel rhs")
     r = raw_dependency_arrays(sum1, sum2)
-    IO.inspect(r)
 
-    ast_fused =
+    poly_spawn_ast_fused =
       if(not Enum.empty?(r)) do
         build_fused_kernel(sum1, sum2, r)
       end
-    IO.puts(Macro.to_string(ast_fused))
-    ast_fused
+
+    poly_spawn_ast_fused
   end
 
   defp raw_dependency_arrays(sum1, sum2) do
