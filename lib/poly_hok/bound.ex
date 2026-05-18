@@ -71,8 +71,8 @@ defmodule BoundAnalysis do
   end
 
   defp equivalent_index?(a, b) do
-    IO.inspect(a, label: "index a:")
-    IO.inspect(b, label: "index b:")
+    # IO.inspect(a, label: "index a:")
+    # IO.inspect(b, label: "index b:")
     a == b
   end
 
@@ -126,8 +126,16 @@ defmodule BoundAnalysis do
     summary
   end
 
-  defp traverse_kernel_ast(k_body, summary) do
-    {_ast, summary} =
+  defp new_kernel_summary(k_name, k_params, k_args) do
+    %BoundAnalysis.KernelSummary{
+      name: k_name,
+      params: k_params,
+      args: k_args
+    }
+  end
+
+  defp dataflow_analysis(summary, k_body) do
+        {_ast, new_summary} =
       Macro.prewalk(k_body, summary, fn
         {:=, _meta, [lhs, rhs]} = node, acc ->
           acc =
@@ -141,19 +149,7 @@ defmodule BoundAnalysis do
           {node, acc}
       end)
 
-    summary
-  end
-
-  defp new_kernel_summary(k_name, k_params, k_args) do
-    %BoundAnalysis.KernelSummary{
-      name: k_name,
-      params: k_params,
-      args: k_args
-    }
-  end
-
-  defp dataflow_analysis(summary, k_body) do
-    traverse_kernel_ast(k_body, summary)
+    new_summary
   end
 
   defp get_kernel_args({_name, _meta, [_, _, _, args]}) do
@@ -355,7 +351,7 @@ defmodule BoundAnalysis do
   end
 
   defmacro fuse(lhs, rhs) do
-    IO.inspect(lhs, label: "spawn call")
+    # IO.inspect(lhs, label: "spawn call")
     sum1 = process_kernel(lhs)
     sum2 = process_kernel(rhs)
     r = raw_dependency_arrays(sum1, sum2)
