@@ -1,39 +1,92 @@
 require PolyHok
 
 PolyHok.defmodule NBodies do
+  defk calculate_forces(bodies, accel, num_bodies) do
+    tid = blockIdx.x * blockDim.x + threadIdx.x
 
-  defd body_interaction(bi, bj, ai) do
-    float3 r;
+    if tid < num_bodies do
+      ax = 0.0
+      ay = 0.0
+      az = 0.0
 
-    r.x = bj[0] - bi[0];
-    r.y = bj[1] - bi[1];
-    r.z = bj[2] - bi[2];
+      for j in range(0, num_bodies) do
+        rx = bodies[j * 4 + 0] - bodies[tid * 4 + 0]
+        ry = bodies[j * 4 + 1] - bodies[tid * 4 + 1]
+        rz = bodies[j * 4 + 2] - bodies[tid * 4 + 2]
+        dist_sqr = rx * rx + ry * ry + rz * rz + 0.000000001
+        inv_dist = rsqrtf(dist_sqr)
+        inv_dist3 = inv_dist * inv_dist * inv_dist
+        s = bodies[j * 4 + 3] * inv_dist3
+        ax = ax + rx * s
+        ay = ay + ry * s
+        az = az + rz * s
+      end
 
-    float dist_sqr = r.x * r.x + r.y * r.y + r.z * r.z + 0.000000001; 
-    float inv_dist = rsqrtf(dist_sqr);
-    float inv_dist3 = inv_dist * inv_dist * inv_dist;
+      accel[tid * 3 + 0] = ax
+      accel[tid * 3 + 1] = ay
+      accel[tid * 3 + 2] = az
+    end
+  end
 
-    float s = bj[3] * inv_dist3;
-    ai[0] = ai[0] + r.x * s;
-    ai[1] = ai[1] + r.y * s;
-    ai[2] = ai[2] + r.z * s;
+  defk calculate_velocities(velocities, accel, dt, num_bodies) do 
+    tid = blockIdx.x * blockDim.x + threadIdx.x
+    if tid <= num_bodies do
+      velocities[tid * 3 + 0] = velocities[tid * 3 + 0] + accel[tid * 3 + 0] * dt
+      velocities[tid * 3 + 1] = velocities[tid * 3 + 1] + accel[tid * 3 + 1] * dt
+      velocities[tid * 3 + 2] = velocities[tid * 3 + 2] + accel[tid * 3 + 2] * dt
+    end
+  end
+  defk calculate_positions(positions, velocities, dt, num_bodies) do 
+    tid = blockIdx.x * blockDim.x + threadIdx.x
+    if tid <= num_bodies do 
+      positions[tid * 4 + 0] = positions[tid * 4 + 0] + velocities[tid * 3 + 0] * dt
+      positions[tid * 4 + 1] = positions[tid * 4 + 1] + velocities[tid * 3 + 1] * dt
+      positions[tid * 4 + 2] = positions[tid * 4 + 2] + velocities[tid * 3 + 2] * dt
+    end
   end
 end
-use Ske
 
-# n = 10
+pos_body =
+  Nx.tensor(
+    [
+      600.0,
+      700.0,
+      800.0,
+      1.0,
+      601.0,
+      700.0,
+      800.0,
+      1.0,
+      600.0,
+      701.0,
+      800.0,
+      1.0
+    ],
+    type: {:f, 32}
+  )
 
-h_arr = Nx.tensor([6.0, 7.0, 8.0], type: {:f, 32})
+accel_body =
+  Nx.tensor(List.duplicate(0.0, 9), type: {:f, 32})
 
-b_arr = Nx.tensor(Enum.to_list(1..3), type: {:f, 32})
-c_arr = Nx.tensor(Enum.to_list(1..3), type: {:f, 32})
-IO.inspect(c_arr)
-IO.inspect(h_arr)
-gpu_arr = PolyHok.new_gnx(h_arr)
-b_dev = PolyHok.new_gnx(b_arr)
-c_dev = PolyHok.new_gnx(c_arr)
+vel_body =
+  Nx.tensor(List.duplicate(0.0, 9), type: {:f, 32})
 
-gpu_resp = Ske.map(gpu_arr,&NBodies.body_interaction/3,[b_dev, c_dev], return: false)
+positions = PolyHok.new_gnx(pos_body)
 
-resp = PolyHok.get_gnx(gpu_resp)
-IO.inspect(resp)
+accel = PolyHok.new_gnx(accel_body)
+velocities = PolyHok.new_gnx(vel_body)
+
+PolyHok.spawn(
+  &NBodies.calculate_forces/3,
+  {1, 1, 1},
+  {3, 1, 1},
+  [positions, accel, 3]
+)
+PolyHok.spawn(&NBodies.calculate_velocities/4, {1,1,1}, {3,1,1}, [velocities, accel, 0.01, 3])
+PolyHok.spawn(&NBodies.calculate_positions/4, {1,1,1}, {3,1,1}, [positions, velocities, 0.01, 3])
+
+res_pos = PolyHok.get_gnx(positions)
+res_vel = PolyHok.get_gnx(velocities)
+
+IO.inspect(res_pos)
+IO.inspect(res_vel)
