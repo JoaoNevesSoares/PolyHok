@@ -4,10 +4,12 @@ PolyHok.defmodule NBodies do
   defk calculate_forces(bodies, accel, num_bodies) do
     tid = blockIdx.x * blockDim.x + threadIdx.x
 
+    a[3]
+
     if tid < num_bodies do
-      ax = 0.0
-      ay = 0.0
-      az = 0.0
+      a[0] = 0.0
+      a[1] = 0.0
+      a[2] = 0.0
 
       for j in range(0, num_bodies) do
         rx = bodies[j * 4 + 0] - bodies[tid * 4 + 0]
@@ -17,14 +19,14 @@ PolyHok.defmodule NBodies do
         inv_dist = rsqrtf(dist_sqr)
         inv_dist3 = inv_dist * inv_dist * inv_dist
         s = bodies[j * 4 + 3] * inv_dist3
-        ax = ax + rx * s
-        ay = ay + ry * s
-        az = az + rz * s
+        a[0] = a[0] + rx * s
+        a[1] = a[1] + ry * s
+        a[2] = a[2] + rz * s
       end
 
-      accel[tid * 3 + 0] = ax
-      accel[tid * 3 + 1] = ay
-      accel[tid * 3 + 2] = az
+      accel[tid * 3 + 0] = a[0]
+      accel[tid * 3 + 1] = a[1]
+      accel[tid * 3 + 2] = a[2]
     end
   end
 
@@ -64,9 +66,8 @@ pos_body =
     ],
     type: {:f, 32}
   )
-
 accel_body =
-  Nx.tensor(List.duplicate(0.0, 9), type: {:f, 32})
+  Nx.tensor(List.duplicate(1.0, 9), type: {:f, 32})
 
 vel_body =
   Nx.tensor(List.duplicate(0.0, 9), type: {:f, 32})
