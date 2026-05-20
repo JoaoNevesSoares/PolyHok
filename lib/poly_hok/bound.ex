@@ -28,7 +28,6 @@ defmodule BoundAnalysis do
     @moduledoc false
     @doc """
     :array -> identificador do array
-    :access_type -> :read, :write
     :rank -> dimensions do array [i,j,k] 
     :indices -> a tuple containing IndexExpr and RangeExpr
     :guards -> necessary conditions for pattern be valid, {:lt | :gte, :tid, :N}
@@ -38,7 +37,6 @@ defmodule BoundAnalysis do
 
     defstruct [
       :array,
-      :access_type,
       :indices
     ]
   end
@@ -83,15 +81,14 @@ defmodule BoundAnalysis do
     }
   end
 
-  defp build_dad({array_name, _meta, _meta_2}, access_pattern, access_type) do
+  defp build_dad({array_name, _meta, _meta_2}, access_pattern) do
     %BoundAnalysis.DAD{
       array: array_name,
-      access_type: access_type,
       indices: get_idx_expr(access_pattern)
     }
   end
 
-  defp add_access(summary, %BoundAnalysis.DAD{array: array, access_type: :read} = dad) do
+  defp add_access(:read, summary, %BoundAnalysis.DAD{array: array} = dad) do
     update_in(summary.reads, fn reads ->
       Map.update(reads, array, MapSet.new([dad]), fn dads ->
         MapSet.put(dads, dad)
@@ -99,7 +96,7 @@ defmodule BoundAnalysis do
     end)
   end
 
-  defp add_access(summary, %BoundAnalysis.DAD{array: array, access_type: :write} = dad) do
+  defp add_access(:write, summary, %BoundAnalysis.DAD{array: array} = dad) do
     update_in(summary.writes, fn writes ->
       Map.update(writes, array, MapSet.new([dad]), fn dads ->
         MapSet.put(dads, dad)
@@ -114,8 +111,8 @@ defmodule BoundAnalysis do
           case access_node do
             {{:., meta_dot, [Access, :get]}, meta_access, [vector, access_pattern]}
             when is_list(meta_dot) and is_list(meta_access) ->
-              dad = build_dad(vector, access_pattern, access_type)
-              acc = add_access(acc, dad)
+              dad = build_dad(vector, access_pattern)
+              acc = add_access(access_type, acc, dad)
               {access_node, acc}
 
             node ->
@@ -135,7 +132,7 @@ defmodule BoundAnalysis do
   end
 
   defp dataflow_analysis(summary, k_body) do
-        {_ast, new_summary} =
+    {_ast, new_summary} =
       Macro.prewalk(k_body, summary, fn
         {:=, _meta, [lhs, rhs]} = node, acc ->
           acc =
@@ -292,7 +289,8 @@ defmodule BoundAnalysis do
         unquote(capture_ast),
         {1, 1, 1},
         {10, 1, 1},
-        [unquote_splicing(args)])
+        [unquote_splicing(args)]
+      )
     end
   end
 
@@ -319,7 +317,110 @@ defmodule BoundAnalysis do
      ]}
   end
 
-  defp build_fused_kernel(lhs_summary, rhs_summary, _dependency_list) do
+  defp same_array?({name, _meta, _ctx}, expected_name) when is_atom(name) do
+    name == expected_name
+  end
+
+  defp same_array?(_, _), do: false
+
+  defp strip_meta({op, _meta, args}) when is_atom(op) and is_list(args) do
+    {op, [], Enum.map(args, &strip_meta/1)}
+  end
+
+  defp strip_meta({name, _meta, ctx}) when is_atom(name) and is_atom(ctx) do
+    {name, [], nil}
+  end
+
+  defp strip_meta(list) when is_list(list) do
+    Enum.map(list, &strip_meta/1)
+  end
+
+  defp strip_meta(other), do: other
+
+  defp same_index?(left, right) do
+    strip_meta(left) == strip_meta(right)
+  end
+
+  defp replace_reads(consumer_ast, array_name, index_expr, register_name) do
+    Macro.postwalk(consumer_ast, fn
+      {:=, meta, [lhs, rhs]} ->
+        new_rhs =
+          Macro.postwalk(rhs, fn
+            {{:., _, [Access, :get]}, _, [array_ast, access_index]} = node ->
+              if same_array?(array_ast, array_name) and same_index?(access_index, index_expr) do
+                {register_name, [], nil}
+              else
+                node
+              end
+
+            node ->
+              node
+          end)
+
+        {:=, meta, [lhs, new_rhs]}
+
+      node ->
+        node
+    end)
+  end
+
+  defp replace_write(producer_ast, array_name, index_expr, register_name) do
+    Macro.postwalk(producer_ast, fn
+      {:=, meta, [lhs, rhs]} = node ->
+        case lhs do
+          {{:., _, [Access, :get]}, _, [array_ast, access_index]} ->
+            if same_array?(array_ast, array_name) and same_index?(access_index, index_expr) do
+              IO.inspect("Match!")
+              {:=, meta, [{register_name, [], nil}, rhs]}
+            else
+              node
+            end
+
+          _ ->
+            node
+        end
+
+      node ->
+        node
+    end)
+  end
+
+  defp fuse_register_forwarding(producer_ast, consumer_ast, dependency_info) do
+    {producer_ast, consumer_ast, _counter} =
+      Enum.reduce(dependency_info, {producer_ast, consumer_ast, 0}, fn {array_name, dad_set},
+                                                                       {producer_ast,
+                                                                        consumer_ast, counter} ->
+        Enum.reduce(dad_set, {producer_ast, consumer_ast, counter}, fn dad,
+                                                                       {producer_ast,
+                                                                        consumer_ast, counter} ->
+          register_name = :"fused__#{array_name}_#{counter}"
+
+          producer_ast =
+            replace_write(
+              producer_ast,
+              array_name,
+              dad.indices.expr,
+              register_name
+            )
+
+          consumer_ast =
+            replace_reads(
+              consumer_ast,
+              array_name,
+              dad.indices.expr,
+              register_name
+            )
+
+          {producer_ast, consumer_ast, counter + 1}
+        end)
+      end)
+
+    {producer_ast, consumer_ast}
+  end
+
+  defp build_fused_kernel(lhs_summary, rhs_summary, dependency_list) do
+    IO.inspect(lhs_summary, label: "lhs summary struct")
+    IO.inspect(rhs_summary, label: "rhs summary struct")
     rename_map = lhs_rename_map(lhs_summary, rhs_summary)
 
     fused_params = build_fused_params(lhs_summary, rhs_summary, rename_map)
@@ -339,13 +440,16 @@ defmodule BoundAnalysis do
       |> extract_defk_body()
       |> clean_var_context()
 
+    {new_lhs_body, new_rhs_body} = fuse_register_forwarding(lhs_body, rhs_body, dependency_list)
+    IO.puts(Macro.to_string(new_lhs_body))
+
     fused_ast =
-      build_defk_ast(:fused, fused_params, [lhs_body, rhs_body])
+      build_defk_ast(:fused, fused_params, [new_lhs_body, new_rhs_body])
       |> clean_var_context()
 
-    # IO.puts(Macro.to_string(fused_ast))
     # IO.inspect(fused_ast, label: "fused ast")
-
+    IO.puts("resulted of fusing registers")
+    IO.puts(Macro.to_string(fused_ast))
     send(:module_server, {:add_ast, :fused, fused_ast, []})
     build_spawn_ast(:fused, length(fused_params), fused_args)
   end
@@ -354,15 +458,31 @@ defmodule BoundAnalysis do
     # IO.inspect(lhs, label: "spawn call")
     sum1 = process_kernel(lhs)
     sum2 = process_kernel(rhs)
-    r = raw_dependency_arrays(sum1, sum2)
-    IO.inspect(r)
+
+    interleaved_accesses = dependency_intersect(sum1.writes, sum2.reads)
+    IO.inspect(interleaved_accesses, label: "viewing deps")
+    # IO.inspect(r, label: "identified dependencies")
 
     ast_fused =
-      if(not Enum.empty?(r)) do
-        build_fused_kernel(sum1, sum2, r)
+      if(not Enum.empty?(interleaved_accesses)) do
+        build_fused_kernel(sum1, sum2, interleaved_accesses)
       end
-    IO.puts(Macro.to_string(ast_fused))
+
+    # IO.inspect(Macro.to_string(ast_fused), label: "Resulting fused spawn call:")
     ast_fused
+  end
+
+  defp dependency_intersect(producer_writes, consumer_reads) do
+    Enum.reduce(producer_writes, %{}, fn {array_name, producer_dads}, acc ->
+      consumer_dads = Map.get(consumer_reads, array_name, MapSet.new())
+      matching_dads = MapSet.intersection(producer_dads, consumer_dads)
+
+      if MapSet.size(matching_dads) > 0 do
+        Map.put(acc, array_name, matching_dads)
+      else
+        acc
+      end
+    end)
   end
 
   defp raw_dependency_arrays(sum1, sum2) do
