@@ -102,6 +102,69 @@ defmodule DataSet do
   end
 end
 
+defmodule HostNN do
+  def distances(lat, lng) do
+    lat
+    |> Nx.multiply(lat)
+    |> Nx.add(Nx.multiply(lng, lng))
+    |> Nx.sqrt()
+  end
+
+  def stats(distances, lat, lng) do
+    index =
+      distances
+      |> Nx.argmin()
+      |> Nx.to_number()
+
+    distances_list = Nx.to_flat_list(distances)
+    lat_list = Nx.to_flat_list(lat)
+    lng_list = Nx.to_flat_list(lng)
+    min = Enum.at(distances_list, index)
+
+    %{
+      index: index,
+      min: min,
+      lat: Enum.at(lat_list, index),
+      lng: Enum.at(lng_list, index),
+      max: Enum.max(distances_list),
+      first: Enum.take(distances_list, 8),
+      last: distances_list |> Enum.reverse() |> Enum.take(8) |> Enum.reverse()
+    }
+  end
+
+  def scalar(tensor) do
+    tensor
+    |> Nx.squeeze()
+    |> Nx.to_number()
+  end
+
+  def comparison(gpu_value, host_value) do
+    abs_error = abs(gpu_value - host_value)
+
+    %{
+      abs_error: abs_error,
+      rel_error: abs_error / max(abs(host_value), 1.0e-12),
+      matches_1e_5: abs_error <= 1.0e-5,
+      matches_1e_4: abs_error <= 1.0e-4
+    }
+  end
+
+  def buffer_comparison(gpu_distances, host_distances) do
+    errors =
+      gpu_distances
+      |> Nx.to_flat_list()
+      |> Enum.zip(Nx.to_flat_list(host_distances))
+      |> Enum.map(fn {gpu, host} -> abs(gpu - host) end)
+
+    %{
+      max_abs_error: Enum.max(errors),
+      mean_abs_error: Enum.sum(errors) / length(errors),
+      matches_1e_5: Enum.all?(errors, &(&1 <= 1.0e-5)),
+      matches_1e_4: Enum.all?(errors, &(&1 <= 1.0e-4))
+    }
+  end
+end
+
 PolyHok.defmodule NN do
   include(CAS_Float)
   def euclid_seq(l, lat, lng), do: euclid_seq_(l, lat, lng, [])
@@ -120,7 +183,7 @@ PolyHok.defmodule NN do
   end
 
   defd euclid(lat, lng) do
-    sqrt(lat * lat + lng * lng)
+    sqrtf(lat * lat + lng * lng)
   end
 
   defd menor(x, y) do
@@ -139,27 +202,38 @@ size = 8196
 :rand.seed(:exsss, {123, 123, 123})
 
 {lat_host, lng_host} = DataSet.gen_data_set_nx(size)
-
-prev = System.monotonic_time()
+host_distances = HostNN.distances(lat_host, lng_host)
+host_stats = HostNN.stats(host_distances, lat_host, lng_host)
 
 lat_gpu = PolyHok.new_gnx(lat_host)
 lng_gpu = PolyHok.new_gnx(lng_host)
 
-r = Ske.map2(lat_gpu, lng_gpu, &NN.euclid/2)
+prev = System.monotonic_time()
 
-# IO.inspect(PolyHok.get_gnx(r))
-# File.write!("resultado_map-NN.txt", inspect(PolyHok.get_gnx(r), limit: :infinity))
-_r =
-  r
-  |> Ske.reduce(50000.0, &NN.menor/2)
-  |> PolyHok.get_gnx()
-  |> IO.inspect()
+gpu_distances = Ske.map2(lat_gpu, lng_gpu, &NN.euclid/2)
+gpu_res = Ske.reduce(gpu_distances, 50000.0, &NN.menor/2)
 
 next = System.monotonic_time()
+
+gpu_distances_host = PolyHok.get_gnx(gpu_distances)
+res = PolyHok.get_gnx(gpu_res)
+gpu_value = HostNN.scalar(res)
+gpu_stats = HostNN.stats(gpu_distances_host, lat_host, lng_host)
+
 IO.puts("PolyHok\t#{size}\t#{System.convert_time_unit(next - prev, :native, :millisecond)}")
+IO.inspect(lat_host, label: "host latitude buffer")
+IO.inspect(lng_host, label: "host longitude buffer")
+IO.inspect(host_distances, label: "host Nx distance buffer")
+IO.inspect(host_stats, label: "host Nx nearest-neighbor stats")
+IO.inspect(gpu_distances_host, label: "gpu Ske.map2 distance buffer")
+IO.inspect(gpu_stats, label: "gpu Ske.map2 nearest-neighbor stats")
 
-# result_elixir = Enum.reverse(NN.euclid_seq(list_data_set,0.0,0.0))
+IO.inspect(HostNN.buffer_comparison(gpu_distances_host, host_distances),
+  label: "gpu map2 buffer vs host Nx buffer comparison"
+)
 
-# IO.puts("NN = #{nn[1]}")
+IO.inspect(res, label: "gpu Ske.reduce result buffer")
 
-# IO.inspect (Enum.reduce(result_elixir,0, fn (x,y)-> if y == 0 do x else if x<y do x else y end end end))
+IO.inspect(HostNN.comparison(gpu_value, host_stats.min),
+  label: "gpu reduce vs host Nx comparison"
+)
