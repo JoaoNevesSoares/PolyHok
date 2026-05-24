@@ -450,6 +450,181 @@ defmodule Fusion do
           "full-chain fusion requires <= 3 tensor inputs with current Ske API, got #{length(inputs)}"
   end
 
+  defp fusion_data_key(data_ast, state, scalar_fold?) do
+    if scalar_fold? && foldable_scalar_ast?(data_ast) do
+      {{:scalar, strip_ast_metadata(data_ast)}, state}
+    else
+      key = Macro.to_string(strip_ast_metadata(data_ast))
+
+      case state.input_vars[key] do
+        nil ->
+          input_key = {:input, state.next_input_idx}
+
+          new_state = %{
+            state
+            | next_input_idx: state.next_input_idx + 1,
+              input_vars: Map.put(state.input_vars, key, input_key)
+          }
+
+          {input_key, new_state}
+
+        input_key ->
+          {input_key, state}
+      end
+    end
+  end
+
+  defp fusion_data_keys([], state, _scalar_fold?), do: {[], state}
+
+  defp fusion_data_keys([data_ast | rest], state, scalar_fold?) do
+    {data_key, state1} = fusion_data_key(data_ast, state, scalar_fold?)
+    {data_keys, state2} = fusion_data_keys(rest, state1, scalar_fold?)
+    {[data_key | data_keys], state2}
+  end
+
+  defp normalize_fusion_key(calls, scalar_fold?) do
+    state0 = %{next_input_idx: 0, input_vars: %{}}
+
+    {stages, _state} =
+      calls
+      |> Enum.with_index()
+      |> Enum.map_reduce(state0, fn {call, idx}, state ->
+        arity = stage_arity(call.ske)
+        data_asts = normalize_data_list(call.data_ast)
+
+        expected =
+          case idx do
+            0 -> arity
+            _ -> arity - 1
+          end
+
+        if length(data_asts) != expected do
+          stage =
+            case idx do
+              0 -> "first stage #{call.ske}"
+              _ -> "stage #{idx + 1} #{call.ske}"
+            end
+
+          raise ArgumentError,
+                "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
+        end
+
+        {data_keys, state1} = fusion_data_keys(data_asts, state, scalar_fold?)
+        kernel_key = normalize_kernel_key(call.kernel_ast)
+
+        {{call.ske, data_keys, kernel_key}, state1}
+      end)
+
+    {:fusion_v1, scalar_fold?, stages}
+  end
+
+  defp normalize_kernel_key(kernel_ast) do
+    {args, body} = decompose_kernel(kernel_ast)
+    {:kernel, strip_ast_metadata(args), strip_ast_metadata(body)}
+  end
+
+  defp strip_ast_metadata(ast) do
+    Macro.prewalk(ast, fn
+      {name, _meta, args} when is_atom(name) ->
+        {name, [], args}
+
+      node ->
+        node
+    end)
+  end
+
+  defp collect_fusion_inputs(calls, scalar_fold?) do
+    state0 = %{next_input_idx: 0, input_vars: %{}, input_order: []}
+
+    state =
+      calls
+      |> Enum.with_index()
+      |> Enum.reduce(state0, fn {call, idx}, state ->
+        arity = stage_arity(call.ske)
+        data_asts = normalize_data_list(call.data_ast)
+
+        expected =
+          case idx do
+            0 -> arity
+            _ -> arity - 1
+          end
+
+        if length(data_asts) != expected do
+          stage =
+            case idx do
+              0 -> "first stage #{call.ske}"
+              _ -> "stage #{idx + 1} #{call.ske}"
+            end
+
+          raise ArgumentError,
+                "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
+        end
+
+        {_arg_asts, next_state} = resolve_external_inputs(data_asts, state, scalar_fold?)
+        next_state
+      end)
+
+    Enum.map(state.input_order, fn {data_ast, _var_ast} -> data_ast end)
+  end
+
+  defp fusion_cache_get(key) do
+    case Process.whereis(:module_server) do
+      nil ->
+        nil
+
+      _pid ->
+        send(:module_server, {:get_fusion, key, self()})
+
+        receive do
+          {:fusion, cached} -> cached
+        after
+          5_000 -> nil
+        end
+    end
+  end
+
+  defp fusion_cache_put(key, value) do
+    case Process.whereis(:module_server) do
+      nil -> :ok
+      _pid -> send(:module_server, {:put_fusion, key, value})
+    end
+
+    value
+  end
+
+  defp stable_fusion_name(key) do
+    hash =
+      key
+      |> :erlang.term_to_binary()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    "fusion_" <> hash
+  end
+
+  defp build_fn_ast(args, body) do
+    body_ast =
+      case List.wrap(body) do
+        [single] -> single
+        nodes -> {:__block__, [], nodes}
+      end
+
+    {:fn, [], [{:->, [], [args, PolyHok.CudaBackend.add_return(body_ast)]}]}
+  end
+
+  defp build_anon_fun_ast(name, function_ast, funs) do
+    quote do
+      {:anon, unquote(name), {unquote(Macro.escape(function_ast)), unquote(Macro.escape(funs))}}
+    end
+  end
+
+  defp build_cached_anon_fun(key, args, body) do
+    function_ast = build_fn_ast(args, body)
+    funs = JIT.find_functions(function_ast)
+    build_anon_fun_ast(stable_fusion_name(key), function_ast, funs)
+  end
+
   defp fuse_map_chain_calls(calls, scalar_fold?) do
     if Enum.empty?(calls) do
       raise ArgumentError, "empty fusion chain"
@@ -462,20 +637,29 @@ defmodule Fusion do
             "full-chain map fusion supports only map/map2/map3 calls, got #{inspect(invalid.ske)}"
     end
 
-    state0 = %{body: [], value_ast: nil, next_input_idx: 0, input_vars: %{}, input_order: []}
+    key = normalize_fusion_key(calls, scalar_fold?)
 
-    state =
-      calls
-      |> Enum.with_index()
-      |> Enum.reduce(state0, fn {call, idx}, acc ->
-        fuse_map_stage(call, idx, acc, scalar_fold?)
-      end)
+    case fusion_cache_get(key) do
+      nil ->
+        state0 = %{body: [], value_ast: nil, next_input_idx: 0, input_vars: %{}, input_order: []}
 
-    input_data_asts = Enum.map(state.input_order, fn {data_ast, _var_ast} -> data_ast end)
-    input_vars = Enum.map(state.input_order, fn {_data_ast, var_ast} -> var_ast end)
-    fused_fun = build_phok_fun(input_vars, state.body ++ [state.value_ast])
+        state =
+          calls
+          |> Enum.with_index()
+          |> Enum.reduce(state0, fn {call, idx}, acc ->
+            fuse_map_stage(call, idx, acc, scalar_fold?)
+          end)
 
-    %{inputs: input_data_asts, fun: fused_fun}
+        input_data_asts = Enum.map(state.input_order, fn {data_ast, _var_ast} -> data_ast end)
+        input_vars = Enum.map(state.input_order, fn {_data_ast, var_ast} -> var_ast end)
+        fused_fun = build_cached_anon_fun(key, input_vars, state.body ++ [state.value_ast])
+
+        fusion_cache_put(key, fused_fun)
+        %{inputs: input_data_asts, fun: fused_fun}
+
+      fused_fun ->
+        %{inputs: collect_fusion_inputs(calls, scalar_fold?), fun: fused_fun}
+    end
   end
 
   defp emit_single_call(%AstCall{ske: :map, data_ast: nil}) do
@@ -747,19 +931,21 @@ defmodule Fusion do
     end
   end
 
-  defp register_dad(stmt) do 
-
+  defp register_dad(stmt) do
     IO.inspect(stmt, label: "statement")
-    case stmt do 
+
+    case stmt do
       {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
-        when is_list(meta_dot) and is_list(meta_access) -> 
+      when is_list(meta_dot) and is_list(meta_access) ->
         if Keyword.get(meta_dot, :from_brackets) == true and
-      Keyword.get(meta_access, :from_brackets) == true do 
-      {vec, _, _} = vetor
+             Keyword.get(meta_access, :from_brackets) == true do
+          {vec, _, _} = vetor
           IO.puts("vetor")
-      IO.inspect(vec, label: "vetor aqui")
+          IO.inspect(vec, label: "vetor aqui")
         end
-      _ -> []
+
+      _ ->
+        []
     end
   end
 
@@ -795,12 +981,13 @@ defmodule Fusion do
   end
 
   defp local_analysis(body_statements) do
-    
-    Enum.reduce(body_statements,[], fn stmt, dad_list -> 
-      case stmt do 
-    {:=, _, [lhs, rhs]} -> 
+    Enum.reduce(body_statements, [], fn stmt, dad_list ->
+      case stmt do
+        {:=, _, [lhs, rhs]} ->
           register_dad(lhs)
-    _ -> dad_list
+
+        _ ->
+          dad_list
       end
     end)
   end
