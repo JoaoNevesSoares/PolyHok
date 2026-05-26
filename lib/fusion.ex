@@ -616,49 +616,6 @@ defmodule Fusion do
     end
   end
 
-  defp emit_single_call(%AstCall{ske: :map, piped_input?: true}) do
-    raise ArgumentError,
-          "standalone map fusion expects Ske.map(input, kernel)"
-  end
-
-  defp emit_single_call(%AstCall{ske: :map, explicit_inputs: [data_ast], kernel_ast: kernel_ast}) do
-    quote do
-      Ske.map(unquote(data_ast), unquote(normalize_kernel_ast(kernel_ast)))
-    end
-  end
-
-  defp emit_single_call(%AstCall{ske: :map2, explicit_inputs: [t1, t2], kernel_ast: kernel_ast}) do
-    quote do
-      Ske.map2(unquote(t1), unquote(t2), unquote(normalize_kernel_ast(kernel_ast)))
-    end
-  end
-
-  defp emit_single_call(%AstCall{
-         ske: :map3,
-         explicit_inputs: [t1, t2, t3],
-         kernel_ast: kernel_ast
-       }) do
-    quote do
-      Ske.map3(unquote(t1), unquote(t2), unquote(t3), unquote(normalize_kernel_ast(kernel_ast)))
-    end
-  end
-
-  defp emit_single_call(%AstCall{
-         ske: :reduce,
-         explicit_inputs: [input],
-         initial_ast: initial,
-         kernel_ast: kernel_ast
-       }) do
-    quote do
-      Ske.reduce(unquote(input), unquote(initial), unquote(normalize_kernel_ast(kernel_ast)))
-    end
-  end
-
-  defp emit_single_call(%AstCall{} = call) do
-    raise ArgumentError,
-          "unsupported single fusion call shape for #{inspect(call.ske)}: #{call_shape_description(call)}"
-  end
-
   defp emit_chain_with_reduce(calls) do
     reduce_idx =
       calls
@@ -671,34 +628,30 @@ defmodule Fusion do
     map_calls = Enum.take(calls, reduce_idx)
     reduce_call = Enum.at(calls, reduce_idx)
 
-    if Enum.empty?(map_calls) do
-      emit_single_call(reduce_call)
-    else
-      %{inputs: inputs, fun: map_fun} = fuse_map_chain_calls(map_calls)
-      red_fun = normalize_kernel_ast(reduce_call.kernel_ast)
-      initial = reduce_call.initial_ast
+    %{inputs: inputs, fun: map_fun} = fuse_map_chain_calls(map_calls)
+    red_fun = normalize_kernel_ast(reduce_call.kernel_ast)
+    initial = reduce_call.initial_ast
 
-      case inputs do
-        [t1] ->
-          quote do
-            Ske.mapReduce(unquote(t1), unquote(initial), unquote(map_fun), unquote(red_fun))
-          end
+    case inputs do
+      [t1] ->
+        quote do
+          Ske.mapReduce(unquote(t1), unquote(initial), unquote(map_fun), unquote(red_fun))
+        end
 
-        [t1, t2] ->
-          quote do
-            Ske.map2Reduce(
-              unquote(t1),
-              unquote(t2),
-              unquote(initial),
-              unquote(map_fun),
-              unquote(red_fun)
-            )
-          end
+      [t1, t2] ->
+        quote do
+          Ske.map2Reduce(
+            unquote(t1),
+            unquote(t2),
+            unquote(initial),
+            unquote(map_fun),
+            unquote(red_fun)
+          )
+        end
 
-        _ ->
-          raise ArgumentError,
-                "map-chain |> reduce fusion currently supports fused map arity up to 2, got #{length(inputs)}"
-      end
+      _ ->
+        raise ArgumentError,
+              "map-chain |> reduce fusion currently supports fused map arity up to 2, got #{length(inputs)}"
     end
   end
 
@@ -855,16 +808,15 @@ defmodule Fusion do
     body_list
   end
 
-  defmacro with_fusion(ast) do
+  defmacro with_fusion({:|>, _meta, _args} = ast) do
     calls =
       ast
       |> flatten_pipe_ast()
       |> Enum.map(&parse_ske_call/1)
       |> validate_call_positions()
 
-    case calls do
-      [single] -> emit_single_call(single)
-      chain -> emit_fused_chain(chain)
-    end
+    emit_fused_chain(calls)
   end
+
+  defmacro with_fusion(ast), do: ast
 end
