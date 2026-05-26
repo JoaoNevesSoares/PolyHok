@@ -22,130 +22,6 @@ defmodule Fusion do
     defstruct [:name, :args, :params]
   end
 
-  defmodule IndexExpr do
-    defstruct [
-      :expr,
-      :range
-    ]
-  end
-
-  defmodule RangeExpr do
-    defstruct [
-      :expr,
-      :range
-    ]
-  end
-
-  defmodule ThreadMapping do
-    defstruct [
-      :tid,
-      :block,
-      :thread,
-      :grid
-    ]
-  end
-
-  defmodule DAD do
-    @moduledoc false
-    @doc """
-    :array -> identificador do array
-    :access_type -> :read, :write
-    :rank -> dimensions do array [i,j,k] 
-    :indices -> a tuple containing IndexExpr and RangeExpr
-    :guards -> necessary conditions for pattern be valid, {:lt | :gte, :tid, :N}
-    :ThreadMapping
-    :precison -> :exact | :regular | :unknown  -> computed from lattice
-    """
-
-    defstruct [
-      :array,
-      :access_type,
-      :rank,
-      :indices,
-      :guards,
-      :thread_mapping,
-      :precision
-    ]
-  end
-
-  defmodule KernelAcessPattern do
-    @moduledoc false
-    @doc """
-    :name -> :kernel_name
-    :read_pattern
-    :write_pattern 
-    """
-    defstruct [:name, read_pattern: %{}, write_pattern: %{}]
-  end
-
-  defp new_acesspattern(kernel_name) do
-    %KernelAcessPattern{
-      name: kernel_name
-    }
-  end
-
-  defp register_pattern(spawn_ast_call) do
-    pattern = new_acesspattern(spawn_ast_call.name)
-
-    Enum.reduce(spawn_ast_call.params, pattern, fn {k_par, _, _}, p ->
-      add_read(p, k_par)
-      |> add_write(k_par)
-    end)
-  end
-
-  defp add_write(pattern, key) do
-    new_map =
-      Map.put(
-        pattern.write_pattern,
-        key,
-        MapSet.new()
-      )
-
-    %{pattern | write_pattern: new_map}
-  end
-
-  defp add_read(pattern, key) do
-    new_map =
-      Map.put(
-        pattern.read_pattern,
-        key,
-        MapSet.new()
-      )
-
-    %{pattern | read_pattern: new_map}
-  end
-
-  def add_read(pattern, key, element) do
-    new_map =
-      Map.update(
-        pattern.read_pattern,
-        key,
-        MapSet.new([element]),
-        fn set -> MapSet.put(set, element) end
-      )
-
-    %{pattern | read_pattern: new_map}
-  end
-
-  def add_write(pattern, key, element) do
-    new_map =
-      Map.update!(
-        pattern.write_pattern,
-        key,
-        fn set -> MapSet.put(set, element) end
-      )
-
-    %{pattern | write_pattern: new_map}
-  end
-
-  defp new_spawncall(kernel_name, args, params) do
-    %SpawnAstCall{
-      name: kernel_name,
-      args: args,
-      params: params
-    }
-  end
-
   defp new_skecall(ske_name, data_ast, kernel_ast) do
     %AstCall{
       ske: ske_name,
@@ -198,8 +74,8 @@ defmodule Fusion do
   defp foldable_scalar_ast?({:-, _, [v]}) when is_integer(v) or is_float(v), do: true
   defp foldable_scalar_ast?(_), do: false
 
-  defp resolve_external_input(data_ast, state, scalar_fold?) do
-    if scalar_fold? && foldable_scalar_ast?(data_ast) do
+  defp resolve_external_input(data_ast, state) do
+    if foldable_scalar_ast?(data_ast) do
       {data_ast, state}
     else
       key = Macro.to_string(data_ast)
@@ -224,11 +100,11 @@ defmodule Fusion do
     end
   end
 
-  defp resolve_external_inputs([], state, _scalar_fold?), do: {[], state}
+  defp resolve_external_inputs([], state), do: {[], state}
 
-  defp resolve_external_inputs([data_ast | rest], state, scalar_fold?) do
-    {arg_ast, state1} = resolve_external_input(data_ast, state, scalar_fold?)
-    {other_asts, state2} = resolve_external_inputs(rest, state1, scalar_fold?)
+  defp resolve_external_inputs([data_ast | rest], state) do
+    {arg_ast, state1} = resolve_external_input(data_ast, state)
+    {other_asts, state2} = resolve_external_inputs(rest, state1)
     {[arg_ast | other_asts], state2}
   end
 
@@ -393,7 +269,7 @@ defmodule Fusion do
     split_body_and_return(substituted)
   end
 
-  defp fuse_map_stage(call, stage_idx, state, scalar_fold?) do
+  defp fuse_map_stage(call, stage_idx, state) do
     arity = stage_arity(call.ske)
     data_asts = normalize_data_list(call.data_ast)
 
@@ -404,7 +280,7 @@ defmodule Fusion do
                 "first stage #{call.ske} expects #{arity} explicit inputs, got #{length(data_asts)}"
         end
 
-        {resolved, s} = resolve_external_inputs(data_asts, state, scalar_fold?)
+        {resolved, s} = resolve_external_inputs(data_asts, state)
         {resolved, s, []}
       else
         if length(data_asts) != arity - 1 do
@@ -412,7 +288,7 @@ defmodule Fusion do
                 "stage #{stage_idx + 1} #{call.ske} expects #{arity - 1} explicit inputs in a pipe chain, got #{length(data_asts)}"
         end
 
-        {extra_args, state_after_inputs} = resolve_external_inputs(data_asts, state, scalar_fold?)
+        {extra_args, state_after_inputs} = resolve_external_inputs(data_asts, state)
         input_var = {String.to_atom("__fuse_in_#{stage_idx}"), [], nil}
         prelude = [{:=, [], [input_var, state.value_ast]}]
         {[input_var | extra_args], state_after_inputs, prelude}
@@ -450,8 +326,8 @@ defmodule Fusion do
           "full-chain fusion requires <= 3 tensor inputs with current Ske API, got #{length(inputs)}"
   end
 
-  defp fusion_data_key(data_ast, state, scalar_fold?) do
-    if scalar_fold? && foldable_scalar_ast?(data_ast) do
+  defp fusion_data_key(data_ast, state) do
+    if foldable_scalar_ast?(data_ast) do
       {{:scalar, strip_ast_metadata(data_ast)}, state}
     else
       key = Macro.to_string(strip_ast_metadata(data_ast))
@@ -474,15 +350,15 @@ defmodule Fusion do
     end
   end
 
-  defp fusion_data_keys([], state, _scalar_fold?), do: {[], state}
+  defp fusion_data_keys([], state), do: {[], state}
 
-  defp fusion_data_keys([data_ast | rest], state, scalar_fold?) do
-    {data_key, state1} = fusion_data_key(data_ast, state, scalar_fold?)
-    {data_keys, state2} = fusion_data_keys(rest, state1, scalar_fold?)
+  defp fusion_data_keys([data_ast | rest], state) do
+    {data_key, state1} = fusion_data_key(data_ast, state)
+    {data_keys, state2} = fusion_data_keys(rest, state1)
     {[data_key | data_keys], state2}
   end
 
-  defp normalize_fusion_key(calls, scalar_fold?) do
+  defp normalize_fusion_key(calls) do
     state0 = %{next_input_idx: 0, input_vars: %{}}
 
     {stages, _state} =
@@ -509,13 +385,13 @@ defmodule Fusion do
                 "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
         end
 
-        {data_keys, state1} = fusion_data_keys(data_asts, state, scalar_fold?)
+        {data_keys, state1} = fusion_data_keys(data_asts, state)
         kernel_key = normalize_kernel_key(call.kernel_ast)
 
         {{call.ske, data_keys, kernel_key}, state1}
       end)
 
-    {:fusion_v1, scalar_fold?, stages}
+    {:fusion_v2, stages}
   end
 
   defp normalize_kernel_key(kernel_ast) do
@@ -533,7 +409,7 @@ defmodule Fusion do
     end)
   end
 
-  defp collect_fusion_inputs(calls, scalar_fold?) do
+  defp collect_fusion_inputs(calls) do
     state0 = %{next_input_idx: 0, input_vars: %{}, input_order: []}
 
     state =
@@ -560,7 +436,7 @@ defmodule Fusion do
                 "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
         end
 
-        {_arg_asts, next_state} = resolve_external_inputs(data_asts, state, scalar_fold?)
+        {_arg_asts, next_state} = resolve_external_inputs(data_asts, state)
         next_state
       end)
 
@@ -625,7 +501,7 @@ defmodule Fusion do
     build_anon_fun_ast(stable_fusion_name(key), function_ast, funs)
   end
 
-  defp fuse_map_chain_calls(calls, scalar_fold?) do
+  defp fuse_map_chain_calls(calls) do
     if Enum.empty?(calls) do
       raise ArgumentError, "empty fusion chain"
     end
@@ -637,7 +513,7 @@ defmodule Fusion do
             "full-chain map fusion supports only map/map2/map3 calls, got #{inspect(invalid.ske)}"
     end
 
-    key = normalize_fusion_key(calls, scalar_fold?)
+    key = normalize_fusion_key(calls)
 
     case fusion_cache_get(key) do
       nil ->
@@ -647,7 +523,7 @@ defmodule Fusion do
           calls
           |> Enum.with_index()
           |> Enum.reduce(state0, fn {call, idx}, acc ->
-            fuse_map_stage(call, idx, acc, scalar_fold?)
+            fuse_map_stage(call, idx, acc)
           end)
 
         input_data_asts = Enum.map(state.input_order, fn {data_ast, _var_ast} -> data_ast end)
@@ -658,7 +534,7 @@ defmodule Fusion do
         %{inputs: input_data_asts, fun: fused_fun}
 
       fused_fun ->
-        %{inputs: collect_fusion_inputs(calls, scalar_fold?), fun: fused_fun}
+        %{inputs: collect_fusion_inputs(calls), fun: fused_fun}
     end
   end
 
@@ -703,7 +579,7 @@ defmodule Fusion do
           "unsupported single fusion call shape for #{inspect(call.ske)} with data #{Macro.to_string(call.data_ast)}"
   end
 
-  defp emit_chain_with_reduce(calls, scalar_fold?) do
+  defp emit_chain_with_reduce(calls) do
     reduce_idx =
       calls
       |> Enum.with_index()
@@ -718,7 +594,7 @@ defmodule Fusion do
     if Enum.empty?(map_calls) do
       emit_single_call(reduce_call)
     else
-      %{inputs: inputs, fun: map_fun} = fuse_map_chain_calls(map_calls, scalar_fold?)
+      %{inputs: inputs, fun: map_fun} = fuse_map_chain_calls(map_calls)
       red_fun = normalize_kernel_ast(reduce_call.kernel_ast)
       initial = reduce_call.data_ast
 
@@ -746,7 +622,7 @@ defmodule Fusion do
     end
   end
 
-  defp emit_fused_chain(calls, scalar_fold?) do
+  defp emit_fused_chain(calls) do
     reduce_positions =
       calls
       |> Enum.with_index()
@@ -755,11 +631,11 @@ defmodule Fusion do
 
     case reduce_positions do
       [] ->
-        %{inputs: inputs, fun: fun_ast} = fuse_map_chain_calls(calls, scalar_fold?)
+        %{inputs: inputs, fun: fun_ast} = fuse_map_chain_calls(calls)
         emit_map_from_inputs_and_fun(inputs, fun_ast)
 
       [idx] when idx == length(calls) - 1 ->
-        emit_chain_with_reduce(calls, scalar_fold?)
+        emit_chain_with_reduce(calls)
 
       [idx] ->
         raise ArgumentError,
@@ -895,230 +771,11 @@ defmodule Fusion do
     end
   end
 
-  defp map_kernel_input_and_parameters(spawn_arguments, kernel_call) do
-    kernel_name = JIT.get_kernel_name(kernel_call)
-    kast = PolyHok.load_ast(kernel_name)
-
-    {:ok, {^kernel_name, _, kernel_parameters}} =
-      find_ast_node(kast, fn
-        {^kernel_name, _, _} -> true
-        _ -> false
-      end)
-
-    # Enum.zip(spawn_arguments, kernel_parameters)
-    new_spawncall(kernel_name, spawn_arguments, kernel_parameters)
-  end
-
   def extract_defk_body_to_list({{:defk, _, [_, [do: {:__block__, _, body_list}]]}, _}) do
     body_list
   end
 
-  defp register_write_access(l_value, kernel_access) do
-    case l_value do
-      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
-      when is_list(meta_dot) and is_list(meta_access) ->
-        if Keyword.get(meta_dot, :from_brackets) == true and
-             Keyword.get(meta_access, :from_brackets) == true do
-          {vec, _, _} = vetor
-          idx_pattern = strip_meta_from_access_indexes(access_pattern)
-          add_write(kernel_access, vec, idx_pattern)
-        else
-          kernel_access
-        end
-
-      _ ->
-        kernel_access
-    end
-  end
-
-  defp register_dad(stmt) do
-    IO.inspect(stmt, label: "statement")
-
-    case stmt do
-      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
-      when is_list(meta_dot) and is_list(meta_access) ->
-        if Keyword.get(meta_dot, :from_brackets) == true and
-             Keyword.get(meta_access, :from_brackets) == true do
-          {vec, _, _} = vetor
-          IO.puts("vetor")
-          IO.inspect(vec, label: "vetor aqui")
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  defp register_read_access(r_value, kernel_access) do
-    case r_value do
-      {{:., meta_dot, [Access, :get]}, meta_access, [vetor, access_pattern]}
-      when is_list(meta_dot) and is_list(meta_access) ->
-        if Keyword.get(meta_dot, :from_brackets) == true and
-             Keyword.get(meta_access, :from_brackets) == true do
-          {vec, _, _} = vetor
-          idx_pattern = strip_meta_from_access_indexes(access_pattern)
-          add_read(kernel_access, vec, idx_pattern)
-        else
-          kernel_access
-        end
-
-      _ ->
-        kernel_access
-    end
-  end
-
-  defp strip_meta_from_access_indexes(ast) do
-    Macro.prewalk(
-      ast,
-      fn
-        {name, meta, args} when is_atom(name) and is_list(meta) ->
-          {name, [], args}
-
-        node ->
-          node
-      end
-    )
-  end
-
-  defp local_analysis(body_statements) do
-    Enum.reduce(body_statements, [], fn stmt, dad_list ->
-      case stmt do
-        {:=, _, [lhs, rhs]} ->
-          register_dad(lhs)
-
-        _ ->
-          dad_list
-      end
-    end)
-  end
-
-  defp data_access_analysis(kernel_acess, body_statements) do
-    IO.inspect(body_statements, label: "body list")
-
-    res =
-      Enum.reduce(body_statements, kernel_acess, fn stmt, kernel_acess ->
-        case stmt do
-          {:=, _, [lhs, rhs]} ->
-            inter = register_write_access(lhs, kernel_acess)
-            register_read_access(rhs, inter)
-
-          _ ->
-            kernel_acess
-        end
-      end)
-
-    res
-  end
-
-  defp data_dependency_analysis(k1_access, k2_access) do
-    IO.inspect(k1_access.write_pattern, label: "k1 access struct")
-    IO.inspect(k2_access.read_pattern, label: "k2 access struct")
-    l_map = Map.get(k1_access.write_pattern, :input)
-    r_map = Map.get(k2_access.read_pattern, :input)
-
-    cond do
-      not MapSet.disjoint?(l_map, r_map) and MapSet.subset?(r_map, l_map) ->
-        :fusible_register
-
-      true ->
-        :not_fusible
-    end
-  end
-
-  defp create_fused_kernels(
-         :fusible_register,
-         lhs_body,
-         rhs_body,
-         lhs_call,
-         rhs_call,
-         dependency_list
-       ) do
-    res =
-      Enum.reduce(dependency_list, lhs_body, fn {tensor, pattern}, lhs_body ->
-        Macro.prewalk(lhs_body, fn
-          {{:., _meta_dot, [Access, :get]}, _meta_access, [^tensor, ^pattern]} ->
-            {String.to_atom("fused_in"), [], nil}
-
-          other ->
-            other
-        end)
-      end)
-
-    IO.puts(Macro.to_string(res))
-
-    # doin the same but with the reader side body
-    res_rhs =
-      Enum.reduce(
-        [{{:input, [line: 13, column: 11], nil}, {:tid, [line: 13, column: 17], nil}}],
-        rhs_body,
-        fn {tensor, pattern}, rhs_body ->
-          Macro.prewalk(rhs_body, fn
-            {:=, meta, [lhs, {{:., meta_dot, [Access, :get]}, _meta_access, [^tensor, ^pattern]}]} ->
-              {:=, meta, [lhs, {String.to_atom("fused_in"), [], nil}]}
-
-            other ->
-              other
-          end)
-        end
-      )
-
-    IO.puts(Macro.to_string(res_rhs))
-  end
-
-  defmacro {{:., _, [_, :spawn]}, _, call_lhs}
-           <~> {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs} do
-    [kernel_call, _, _, spawn_arguments] = call_lhs
-    [rhs_kernel_call, _, _, rhs_spawn_arguments] = call_rhs
-
-    # for kernel LHS
-    spawn_call = map_kernel_input_and_parameters(spawn_arguments, kernel_call)
-    t = register_pattern(spawn_call)
-    kernel_name = JIT.get_kernel_name(kernel_call)
-    body_stmt = PolyHok.load_ast(kernel_name) |> extract_defk_body_to_list()
-    acces_analysis = data_access_analysis(t, body_stmt)
-
-    # for kernel RHS
-
-    rhs_spawn_call = map_kernel_input_and_parameters(rhs_spawn_arguments, rhs_kernel_call)
-    rhs_t = register_pattern(rhs_spawn_call)
-    rhs_kernel_name = JIT.get_kernel_name(rhs_kernel_call)
-    rhs_body_stmt = PolyHok.load_ast(rhs_kernel_name) |> extract_defk_body_to_list()
-    rhs_acces_analysis = data_access_analysis(rhs_t, rhs_body_stmt)
-
-    analysis_result = data_dependency_analysis(acces_analysis, rhs_acces_analysis)
-
-    create_fused_kernels(
-      analysis_result,
-      body_stmt,
-      rhs_body_stmt,
-      spawn_call,
-      rhs_spawn_call,
-      [{{:input, [line: 8, column: 5], nil}, {:tid, [line: 8, column: 11], nil}}]
-    )
-
-    {{:., module_line, [aliases_tuple, :spawn]}, line, call_rhs}
-  end
-
-  defmacro test_analysis({{:., _, [_, :spawn]}, _, call}) do
-    [kernel_call, _, _, spawn_arguments] = call
-    kernel_name = JIT.get_kernel_name(kernel_call)
-    body_stmt = PolyHok.load_ast(kernel_name) |> extract_defk_body_to_list()
-    acces_analysis = local_analysis(body_stmt)
-  end
-
-  defmacro with_fusion(ast, opts \\ []) do
-    opts =
-      case opts do
-        list when is_list(list) ->
-          Keyword.validate!(list, scalar_fold: true)
-
-        other ->
-          raise ArgumentError,
-                "Fusion.with_fusion/2 expects a keyword options list, got: #{Macro.to_string(other)}"
-      end
-
-    scalar_fold? = Keyword.fetch!(opts, :scalar_fold)
-
+  defmacro with_fusion(ast) do
     calls =
       ast
       |> flatten_pipe_ast()
@@ -1126,7 +783,7 @@ defmodule Fusion do
 
     case calls do
       [single] -> emit_single_call(single)
-      chain -> emit_fused_chain(chain, scalar_fold?)
+      chain -> emit_fused_chain(chain)
     end
   end
 end
