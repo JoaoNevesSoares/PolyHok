@@ -5,28 +5,81 @@ defmodule Fusion do
     @moduledoc false
 
     @doc """
-     :ske        -> :map, :reduce, :scan...
-     :data_ast   -> input arrays for skeletons and scalars
-     :kernel_ast -> raw AST
+     :ske             -> :map, :map2, :map3, :reduce...
+     :kernel_ast      -> raw AST
+     :explicit_inputs -> tensor/scalar inputs written explicitly in the call
+     :initial_ast     -> reduce initial value, when present
+     :piped_input?    -> true when the stage expects the prior pipe value
+     :stage_kind      -> :map or :reduce
+     :terminal?       -> true for terminal stages such as reduce
+     :output_kind     -> :tensor or :scalar
     """
-    defstruct [:ske, :data_ast, :kernel_ast]
+    defstruct [
+      :ske,
+      :kernel_ast,
+      explicit_inputs: [],
+      initial_ast: nil,
+      piped_input?: false,
+      stage_kind: :map,
+      terminal?: false,
+      output_kind: :tensor
+    ]
   end
 
-  defmodule SpawnAstCall do
-    @moduledoc false
-    @doc """
-    :name        -> :kernel_name
-    :args        -> args passed in spawn to kernel
-    :params      -> params declared in kernel header
-    """
-    defstruct [:name, :args, :params]
+  defp supported_skeleton_names, do: [:map, :map2, :map3, :reduce]
+
+  defp skeleton_meta(:map) do
+    %{
+      first_inputs: 1,
+      piped_inputs: 0,
+      stage_kind: :map,
+      terminal?: false,
+      output_kind: :tensor
+    }
   end
 
-  defp new_skecall(ske_name, data_ast, kernel_ast) do
+  defp skeleton_meta(:map2) do
+    %{
+      first_inputs: 2,
+      piped_inputs: 1,
+      stage_kind: :map,
+      terminal?: false,
+      output_kind: :tensor
+    }
+  end
+
+  defp skeleton_meta(:map3) do
+    %{
+      first_inputs: 3,
+      piped_inputs: 2,
+      stage_kind: :map,
+      terminal?: false,
+      output_kind: :tensor
+    }
+  end
+
+  defp skeleton_meta(:reduce) do
+    %{
+      first_inputs: 1,
+      piped_inputs: 0,
+      stage_kind: :reduce,
+      terminal?: true,
+      output_kind: :scalar
+    }
+  end
+
+  defp new_skecall(ske_name, explicit_inputs, kernel_ast, opts \\ []) do
+    meta = skeleton_meta(ske_name)
+
     %AstCall{
       ske: ske_name,
-      data_ast: data_ast,
-      kernel_ast: kernel_ast
+      kernel_ast: kernel_ast,
+      explicit_inputs: explicit_inputs,
+      initial_ast: Keyword.get(opts, :initial_ast),
+      piped_input?: Keyword.get(opts, :piped_input?, false),
+      stage_kind: meta.stage_kind,
+      terminal?: meta.terminal?,
+      output_kind: meta.output_kind
     }
   end
 
@@ -35,26 +88,63 @@ defmodule Fusion do
     do_parse_ske_call(ske_name, args)
   end
 
+  defp parse_ske_call({{:., _meta1, [{_alias, _meta2, [:Ske]}, ske_name]}, _meta3, _args}) do
+    raise ArgumentError,
+          "Fusion.with_fusion/1 does not support Ske.#{ske_name}/...; supported skeletons are #{supported_skeletons_message()}"
+  end
+
   defp parse_ske_call(other) do
     raise ArgumentError,
-          "Fusion.with_fusion/1 expects Ske.map/map2/map3/reduce calls in a pipe chain, got: #{Macro.to_string(other)}"
+          "Fusion.with_fusion/1 expects explicit #{supported_skeletons_message()} calls in a pipe chain, got: #{Macro.to_string(other)}"
   end
 
   defp do_parse_ske_call(ske_name, args) do
-    {data_ast, kernel_ast} =
-      case {ske_name, args} do
-        {:map, [kernel_ast]} -> {nil, kernel_ast}
-        {:map, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
-        {:map2, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
-        {:map2, [data1, data2, kernel_ast]} -> {[data1, data2], kernel_ast}
-        {:map3, [data1, data2, kernel_ast]} -> {[data1, data2], kernel_ast}
-        {:map3, [data1, data2, data3, kernel_ast]} -> {[data1, data2, data3], kernel_ast}
-        {:reduce, [data_ast, kernel_ast]} -> {data_ast, kernel_ast}
-        {:reduce, [data_ast, initial, kernel_ast]} -> {[data_ast, initial], kernel_ast}
-      end
+    case {ske_name, args} do
+      {:map, [kernel_ast]} ->
+        new_skecall(:map, [], kernel_ast, piped_input?: true)
 
-    new_skecall(ske_name, data_ast, kernel_ast)
+      {:map, [data_ast, kernel_ast]} ->
+        new_skecall(:map, [data_ast], kernel_ast)
+
+      {:map2, [data_ast, kernel_ast]} ->
+        new_skecall(:map2, [data_ast], kernel_ast, piped_input?: true)
+
+      {:map2, [data1, data2, kernel_ast]} ->
+        new_skecall(:map2, [data1, data2], kernel_ast)
+
+      {:map3, [data1, data2, kernel_ast]} ->
+        new_skecall(:map3, [data1, data2], kernel_ast, piped_input?: true)
+
+      {:map3, [data1, data2, data3, kernel_ast]} ->
+        new_skecall(:map3, [data1, data2, data3], kernel_ast)
+
+      {:reduce, [initial, kernel_ast]} ->
+        new_skecall(:reduce, [], kernel_ast, initial_ast: initial, piped_input?: true)
+
+      {:reduce, [data_ast, initial, kernel_ast]} ->
+        new_skecall(:reduce, [data_ast], kernel_ast, initial_ast: initial)
+
+      _ ->
+        raise ArgumentError,
+              "malformed Ske.#{ske_name} call in Fusion.with_fusion/1: expected #{skeleton_call_shapes(ske_name)}, got #{length(args)} argument(s)"
+    end
   end
+
+  defp supported_skeletons_message do
+    supported_skeleton_names()
+    |> Enum.map_join("/", &"Ske.#{&1}")
+  end
+
+  defp skeleton_call_shapes(:map), do: "Ske.map(input, kernel) or piped Ske.map(kernel)"
+
+  defp skeleton_call_shapes(:map2),
+    do: "Ske.map2(input1, input2, kernel) or piped Ske.map2(input2, kernel)"
+
+  defp skeleton_call_shapes(:map3),
+    do: "Ske.map3(input1, input2, input3, kernel) or piped Ske.map3(input2, input3, kernel)"
+
+  defp skeleton_call_shapes(:reduce),
+    do: "Ske.reduce(input, initial, kernel) or piped Ske.reduce(initial, kernel)"
 
   defp flatten_pipe_ast({:|>, _meta, [lhs, rhs]}) do
     flatten_pipe_ast(lhs) ++ flatten_pipe_ast(rhs)
@@ -62,13 +152,56 @@ defmodule Fusion do
 
   defp flatten_pipe_ast(ast), do: [ast]
 
-  defp stage_arity(:map), do: 1
-  defp stage_arity(:map2), do: 2
-  defp stage_arity(:map3), do: 3
+  defp validate_call_positions(calls) do
+    calls
+    |> Enum.with_index()
+    |> Enum.each(fn {call, idx} -> validate_call_position!(call, idx) end)
 
-  defp normalize_data_list(nil), do: []
-  defp normalize_data_list(data) when is_list(data), do: data
-  defp normalize_data_list(data), do: [data]
+    calls
+  end
+
+  defp validate_call_position!(%AstCall{} = call, idx) do
+    meta = skeleton_meta(call.ske)
+    actual = length(call.explicit_inputs)
+
+    {expected_piped?, expected_inputs, stage_label} =
+      if idx == 0 do
+        {false, meta.first_inputs, "first stage #{call.ske}"}
+      else
+        {true, meta.piped_inputs, "stage #{idx + 1} #{call.ske}"}
+      end
+
+    cond do
+      call.piped_input? != expected_piped? ->
+        expected_shape =
+          if expected_piped? do
+            "piped #{call.ske} shape with #{expected_inputs} explicit input(s)"
+          else
+            "standalone #{call.ske} shape with #{expected_inputs} explicit input(s)"
+          end
+
+        raise ArgumentError,
+              "#{stage_label} expects #{expected_shape}, got #{call_shape_description(call)}"
+
+      actual != expected_inputs ->
+        raise ArgumentError,
+              "#{stage_label} expects #{expected_inputs} explicit input(s), got #{actual}"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp call_shape_description(%AstCall{} = call) do
+    shape =
+      if call.piped_input? do
+        "piped"
+      else
+        "standalone"
+      end
+
+    "#{shape} #{call.ske} shape with #{length(call.explicit_inputs)} explicit input(s)"
+  end
 
   defp foldable_scalar_ast?(ast) when is_integer(ast) or is_float(ast), do: true
   defp foldable_scalar_ast?({:-, _, [v]}) when is_integer(v) or is_float(v), do: true
@@ -270,28 +403,15 @@ defmodule Fusion do
   end
 
   defp fuse_map_stage(call, stage_idx, state) do
-    arity = stage_arity(call.ske)
-    data_asts = normalize_data_list(call.data_ast)
-
     {actual_args, state1, stage_prelude} =
-      if stage_idx == 0 do
-        if length(data_asts) != arity do
-          raise ArgumentError,
-                "first stage #{call.ske} expects #{arity} explicit inputs, got #{length(data_asts)}"
-        end
-
-        {resolved, s} = resolve_external_inputs(data_asts, state)
-        {resolved, s, []}
-      else
-        if length(data_asts) != arity - 1 do
-          raise ArgumentError,
-                "stage #{stage_idx + 1} #{call.ske} expects #{arity - 1} explicit inputs in a pipe chain, got #{length(data_asts)}"
-        end
-
-        {extra_args, state_after_inputs} = resolve_external_inputs(data_asts, state)
+      if call.piped_input? do
+        {extra_args, state_after_inputs} = resolve_external_inputs(call.explicit_inputs, state)
         input_var = {String.to_atom("__fuse_in_#{stage_idx}"), [], nil}
         prelude = [{:=, [], [input_var, state.value_ast]}]
         {[input_var | extra_args], state_after_inputs, prelude}
+      else
+        {resolved, s} = resolve_external_inputs(call.explicit_inputs, state)
+        {resolved, s, []}
       end
 
     {stage_prefix, stage_value} = inline_kernel_with_args(call.kernel_ast, actual_args, stage_idx)
@@ -363,32 +483,11 @@ defmodule Fusion do
 
     {stages, _state} =
       calls
-      |> Enum.with_index()
-      |> Enum.map_reduce(state0, fn {call, idx}, state ->
-        arity = stage_arity(call.ske)
-        data_asts = normalize_data_list(call.data_ast)
-
-        expected =
-          case idx do
-            0 -> arity
-            _ -> arity - 1
-          end
-
-        if length(data_asts) != expected do
-          stage =
-            case idx do
-              0 -> "first stage #{call.ske}"
-              _ -> "stage #{idx + 1} #{call.ske}"
-            end
-
-          raise ArgumentError,
-                "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
-        end
-
-        {data_keys, state1} = fusion_data_keys(data_asts, state)
+      |> Enum.map_reduce(state0, fn call, state ->
+        {data_keys, state1} = fusion_data_keys(call.explicit_inputs, state)
         kernel_key = normalize_kernel_key(call.kernel_ast)
 
-        {{call.ske, data_keys, kernel_key}, state1}
+        {{call.ske, call.piped_input?, data_keys, kernel_key}, state1}
       end)
 
     {:fusion_v2, stages}
@@ -414,29 +513,8 @@ defmodule Fusion do
 
     state =
       calls
-      |> Enum.with_index()
-      |> Enum.reduce(state0, fn {call, idx}, state ->
-        arity = stage_arity(call.ske)
-        data_asts = normalize_data_list(call.data_ast)
-
-        expected =
-          case idx do
-            0 -> arity
-            _ -> arity - 1
-          end
-
-        if length(data_asts) != expected do
-          stage =
-            case idx do
-              0 -> "first stage #{call.ske}"
-              _ -> "stage #{idx + 1} #{call.ske}"
-            end
-
-          raise ArgumentError,
-                "#{stage} expects #{expected} explicit inputs in a pipe chain, got #{length(data_asts)}"
-        end
-
-        {_arg_asts, next_state} = resolve_external_inputs(data_asts, state)
+      |> Enum.reduce(state0, fn call, state ->
+        {_arg_asts, next_state} = resolve_external_inputs(call.explicit_inputs, state)
         next_state
       end)
 
@@ -538,45 +616,47 @@ defmodule Fusion do
     end
   end
 
-  defp emit_single_call(%AstCall{ske: :map, data_ast: nil}) do
+  defp emit_single_call(%AstCall{ske: :map, piped_input?: true}) do
     raise ArgumentError,
           "standalone map fusion expects Ske.map(input, kernel)"
   end
 
-  defp emit_single_call(%AstCall{ske: :map, data_ast: data_ast, kernel_ast: kernel_ast}) do
+  defp emit_single_call(%AstCall{ske: :map, explicit_inputs: [data_ast], kernel_ast: kernel_ast}) do
     quote do
       Ske.map(unquote(data_ast), unquote(normalize_kernel_ast(kernel_ast)))
     end
   end
 
-  defp emit_single_call(%AstCall{ske: :map2, data_ast: [t1, t2], kernel_ast: kernel_ast}) do
+  defp emit_single_call(%AstCall{ske: :map2, explicit_inputs: [t1, t2], kernel_ast: kernel_ast}) do
     quote do
       Ske.map2(unquote(t1), unquote(t2), unquote(normalize_kernel_ast(kernel_ast)))
     end
   end
 
-  defp emit_single_call(%AstCall{ske: :map3, data_ast: [t1, t2, t3], kernel_ast: kernel_ast}) do
+  defp emit_single_call(%AstCall{
+         ske: :map3,
+         explicit_inputs: [t1, t2, t3],
+         kernel_ast: kernel_ast
+       }) do
     quote do
       Ske.map3(unquote(t1), unquote(t2), unquote(t3), unquote(normalize_kernel_ast(kernel_ast)))
     end
   end
 
-  defp emit_single_call(%AstCall{ske: :reduce, data_ast: data_ast, kernel_ast: kernel_ast}) do
-    case data_ast do
-      [input, initial] ->
-        quote do
-          Ske.reduce(unquote(input), unquote(initial), unquote(normalize_kernel_ast(kernel_ast)))
-        end
-
-      _ ->
-        raise ArgumentError,
-              "standalone reduce fusion expects Ske.reduce(input, initial, kernel)"
+  defp emit_single_call(%AstCall{
+         ske: :reduce,
+         explicit_inputs: [input],
+         initial_ast: initial,
+         kernel_ast: kernel_ast
+       }) do
+    quote do
+      Ske.reduce(unquote(input), unquote(initial), unquote(normalize_kernel_ast(kernel_ast)))
     end
   end
 
   defp emit_single_call(%AstCall{} = call) do
     raise ArgumentError,
-          "unsupported single fusion call shape for #{inspect(call.ske)} with data #{Macro.to_string(call.data_ast)}"
+          "unsupported single fusion call shape for #{inspect(call.ske)}: #{call_shape_description(call)}"
   end
 
   defp emit_chain_with_reduce(calls) do
@@ -596,7 +676,7 @@ defmodule Fusion do
     else
       %{inputs: inputs, fun: map_fun} = fuse_map_chain_calls(map_calls)
       red_fun = normalize_kernel_ast(reduce_call.kernel_ast)
-      initial = reduce_call.data_ast
+      initial = reduce_call.initial_ast
 
       case inputs do
         [t1] ->
@@ -780,6 +860,7 @@ defmodule Fusion do
       ast
       |> flatten_pipe_ast()
       |> Enum.map(&parse_ske_call/1)
+      |> validate_call_positions()
 
     case calls do
       [single] -> emit_single_call(single)
