@@ -5,7 +5,7 @@ defmodule Fusion do
     @moduledoc false
 
     @doc """
-     :ske             -> :map, :map2, :map3, :reduce...
+     :ske             -> :map, :map2, :map3, :map4, :reduce...
      :kernel_ast      -> raw AST
      :explicit_inputs -> tensor/scalar inputs written explicitly in the call
      :initial_ast     -> reduce initial value, when present
@@ -26,7 +26,7 @@ defmodule Fusion do
     ]
   end
 
-  defp supported_skeleton_names, do: [:map, :map2, :map3, :reduce]
+  defp supported_skeleton_names, do: [:map, :map2, :map3, :map4, :reduce]
 
   defp skeleton_meta(:map) do
     %{
@@ -52,6 +52,16 @@ defmodule Fusion do
     %{
       first_inputs: 3,
       piped_inputs: 2,
+      stage_kind: :map,
+      terminal?: false,
+      output_kind: :tensor
+    }
+  end
+
+  defp skeleton_meta(:map4) do
+    %{
+      first_inputs: 4,
+      piped_inputs: 3,
       stage_kind: :map,
       terminal?: false,
       output_kind: :tensor
@@ -84,7 +94,7 @@ defmodule Fusion do
   end
 
   defp parse_ske_call({{:., _meta1, [{_alias, _meta2, [:Ske]}, ske_name]}, _meta3, args})
-       when ske_name in [:map, :map2, :map3, :reduce] do
+       when ske_name in [:map, :map2, :map3, :map4, :reduce] do
     do_parse_ske_call(ske_name, args)
   end
 
@@ -118,6 +128,12 @@ defmodule Fusion do
       {:map3, [data1, data2, data3, kernel_ast]} ->
         new_skecall(:map3, [data1, data2, data3], kernel_ast)
 
+      {:map4, [data1, data2, data3, kernel_ast]} ->
+        new_skecall(:map4, [data1, data2, data3], kernel_ast, piped_input?: true)
+
+      {:map4, [data1, data2, data3, data4, kernel_ast]} ->
+        new_skecall(:map4, [data1, data2, data3, data4], kernel_ast)
+
       {:reduce, [initial, kernel_ast]} ->
         new_skecall(:reduce, [], kernel_ast, initial_ast: initial, piped_input?: true)
 
@@ -142,6 +158,10 @@ defmodule Fusion do
 
   defp skeleton_call_shapes(:map3),
     do: "Ske.map3(input1, input2, input3, kernel) or piped Ske.map3(input2, input3, kernel)"
+
+  defp skeleton_call_shapes(:map4),
+    do:
+      "Ske.map4(input1, input2, input3, input4, kernel) or piped Ske.map4(input2, input3, input4, kernel)"
 
   defp skeleton_call_shapes(:reduce),
     do: "Ske.reduce(input, initial, kernel) or piped Ske.reduce(initial, kernel)"
@@ -441,9 +461,15 @@ defmodule Fusion do
     end
   end
 
+  defp emit_map_from_inputs_and_fun([t1, t2, t3, t4], fun_ast) do
+    quote do
+      Ske.map4(unquote(t1), unquote(t2), unquote(t3), unquote(t4), unquote(fun_ast))
+    end
+  end
+
   defp emit_map_from_inputs_and_fun(inputs, _fun_ast) do
     raise ArgumentError,
-          "full-chain fusion requires <= 3 tensor inputs with current Ske API, got #{length(inputs)}"
+          "full-chain fusion requires <= 4 tensor inputs with current Ske API, got #{length(inputs)}"
   end
 
   defp fusion_data_key(data_ast, state) do
@@ -584,11 +610,11 @@ defmodule Fusion do
       raise ArgumentError, "empty fusion chain"
     end
 
-    invalid = Enum.find(calls, fn call -> call.ske not in [:map, :map2, :map3] end)
+    invalid = Enum.find(calls, fn call -> call.ske not in [:map, :map2, :map3, :map4] end)
 
     if invalid do
       raise ArgumentError,
-            "full-chain map fusion supports only map/map2/map3 calls, got #{inspect(invalid.ske)}"
+            "full-chain map fusion supports only map/map2/map3/map4 calls, got #{inspect(invalid.ske)}"
     end
 
     key = normalize_fusion_key(calls)
@@ -649,9 +675,22 @@ defmodule Fusion do
           )
         end
 
+      [t1, t2, t3, t4] ->
+        quote do
+          Ske.map4Reduce(
+            unquote(t1),
+            unquote(t2),
+            unquote(t3),
+            unquote(t4),
+            unquote(initial),
+            unquote(map_fun),
+            unquote(red_fun)
+          )
+        end
+
       _ ->
         raise ArgumentError,
-              "map-chain |> reduce fusion currently supports fused map arity up to 2, got #{length(inputs)}"
+              "map-chain |> reduce fusion currently supports fused map arity 1, 2, or 4, got #{length(inputs)}"
     end
   end
 

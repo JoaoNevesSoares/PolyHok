@@ -441,34 +441,26 @@ defmodule BoundAnalysis do
       |> clean_var_context()
 
     {new_lhs_body, new_rhs_body} = fuse_register_forwarding(lhs_body, rhs_body, dependency_list)
-    IO.puts(Macro.to_string(new_lhs_body))
 
     fused_ast =
       build_defk_ast(:fused, fused_params, [new_lhs_body, new_rhs_body])
       |> clean_var_context()
 
-    # IO.inspect(fused_ast, label: "fused ast")
-    IO.puts("resulted of fusing registers")
-    IO.puts(Macro.to_string(fused_ast))
     send(:module_server, {:add_ast, :fused, fused_ast, []})
     build_spawn_ast(:fused, length(fused_params), fused_args)
   end
 
   defmacro fuse(lhs, rhs) do
-    # IO.inspect(lhs, label: "spawn call")
     sum1 = process_kernel(lhs)
     sum2 = process_kernel(rhs)
 
     interleaved_accesses = dependency_intersect(sum1.writes, sum2.reads)
-    IO.inspect(interleaved_accesses, label: "viewing deps")
-    # IO.inspect(r, label: "identified dependencies")
 
     ast_fused =
       if(not Enum.empty?(interleaved_accesses)) do
         build_fused_kernel(sum1, sum2, interleaved_accesses)
       end
 
-    # IO.inspect(Macro.to_string(ast_fused), label: "Resulting fused spawn call:")
     ast_fused
   end
 

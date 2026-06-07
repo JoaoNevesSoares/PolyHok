@@ -564,24 +564,24 @@ defmodule PolyHok do
     raise "NIF jit_compile_and_launch_nif/7 not implemented"
   end
 
-  defp maybe_dump_jit_cuda_source(kernel_name, prog) do
-    case System.get_env("POLYHOK_DUMP_CUDA_DIR") do
-      nil ->
-        :ok
-
-      "" ->
-        :ok
-
-      dump_dir ->
-        File.mkdir_p!(dump_dir)
-
-        timestamp = System.os_time(:microsecond)
-        filename = "#{kernel_name}_#{timestamp}.cu"
-        path = Path.join(dump_dir, filename)
-        File.write!(path, prog)
-        IO.puts("PolyHok JIT CUDA dumped to: #{path}")
-    end
-  end
+  # defp maybe_dump_jit_cuda_source(kernel_name, prog) do
+  #   case System.get_env("POLYHOK_DUMP_CUDA_DIR") do
+  #     nil ->
+  #       :ok
+  #
+  #     "" ->
+  #       :ok
+  #
+  #     dump_dir ->
+  #       File.mkdir_p!(dump_dir)
+  #
+  #       timestamp = System.os_time(:microsecond)
+  #       filename = "#{kernel_name}_#{timestamp}.cu"
+  #       path = Path.join(dump_dir, filename)
+  #       File.write!(path, prog)
+  #       IO.puts("PolyHok JIT CUDA dumped to: #{path}")
+  #   end
+  # end
 
   def new_nx_from_function(l, c, type, fun) do
     size = l * c

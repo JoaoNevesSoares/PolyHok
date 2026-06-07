@@ -26,7 +26,8 @@ PolyHok.defmodule Ske do
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
 
     threadsPerBlock = 256
-    blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
+    # blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
+    blocksPerGrid = 4096
     numberOfBlocks = blocksPerGrid
 
     case type do
@@ -62,6 +63,73 @@ PolyHok.defmodule Ske do
 
       x ->
         raise "map2Reduce: type #{inspect(x)} not supported"
+    end
+
+    result_gpu
+  end
+
+  def map4Reduce(t1, t2, t3, t4, initial, map_f, red_f) do
+    shape1 = PolyHok.get_shape_gnx(t1)
+    shape2 = PolyHok.get_shape_gnx(t2)
+    shape3 = PolyHok.get_shape_gnx(t3)
+    shape4 = PolyHok.get_shape_gnx(t4)
+
+    if shape1 != shape2 or shape1 != shape3 or shape1 != shape4 do
+      raise "map4Reduce: input shapes must match, got #{inspect(shape1)}, #{inspect(shape2)}, #{inspect(shape3)}, #{inspect(shape4)}"
+    end
+
+    type1 = PolyHok.get_type_gnx(t1)
+    type2 = PolyHok.get_type_gnx(t2)
+    type3 = PolyHok.get_type_gnx(t3)
+    type4 = PolyHok.get_type_gnx(t4)
+
+    if type1 != type2 or type1 != type3 or type1 != type4 do
+      raise "map4Reduce: input types must match, got #{inspect(type1)}, #{inspect(type2)}, #{inspect(type3)}, #{inspect(type4)}"
+    end
+
+    shape = shape1
+    type = type1
+    size = Tuple.product(shape)
+
+    result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
+
+    threadsPerBlock = 256
+    blocksPerGrid = 4096
+    numberOfBlocks = blocksPerGrid
+
+    case type do
+      {:f, 32} ->
+        cas = PolyHok.phok(fn x, y, z -> cas_float(x, y, z) end)
+
+        PolyHok.spawn(
+          &Ske.map4Reduce_kernel/10,
+          {numberOfBlocks, 1, 1},
+          {threadsPerBlock, 1, 1},
+          [t1, t2, t3, t4, result_gpu, initial, size, cas, map_f, red_f]
+        )
+
+      {:f, 64} ->
+        cas = PolyHok.phok(fn x, y, z -> cas_double(x, y, z) end)
+
+        PolyHok.spawn(
+          &Ske.map4Reduce_kernel/10,
+          {numberOfBlocks, 1, 1},
+          {threadsPerBlock, 1, 1},
+          [t1, t2, t3, t4, result_gpu, initial, size, cas, map_f, red_f]
+        )
+
+      {:s, 32} ->
+        cas = PolyHok.phok(fn x, y, z -> cas_int(x, y, z) end)
+
+        PolyHok.spawn(
+          &Ske.map4Reduce_kernel/10,
+          {numberOfBlocks, 1, 1},
+          {threadsPerBlock, 1, 1},
+          [t1, t2, t3, t4, result_gpu, initial, size, cas, map_f, red_f]
+        )
+
+      x ->
+        raise "map4Reduce: type #{inspect(x)} not supported"
     end
 
     result_gpu
@@ -136,6 +204,44 @@ PolyHok.defmodule Ske do
 
     while tid < n do
       mapped = map_f(t1[tid], t2[tid])
+      temp = red_f(mapped, temp)
+      tid = tid + stride
+    end
+
+    cache[cacheIndex] = temp
+    __syncthreads()
+
+    i = blockDim.x / 2
+
+    while i != 0 do
+      if cacheIndex < i do
+        cache[cacheIndex] = red_f(cache[cacheIndex + i], cache[cacheIndex])
+      end
+
+      __syncthreads()
+      i = i / 2
+    end
+
+    if cacheIndex == 0 do
+      current_value = ref_out[0]
+
+      while !(current_value == cas(ref_out, current_value, red_f(cache[0], current_value))) do
+        current_value = ref_out[0]
+      end
+    end
+  end
+
+  defk map4Reduce_kernel(t1, t2, t3, t4, ref_out, initial, n, cas, map_f, red_f) do
+    __shared__(cache[256])
+
+    tid = threadIdx.x + blockIdx.x * blockDim.x
+    cacheIndex = threadIdx.x
+    stride = blockDim.x * gridDim.x
+
+    temp = initial
+
+    while tid < n do
+      mapped = map_f(t1[tid], t2[tid], t3[tid], t4[tid])
       temp = red_f(mapped, temp)
       tid = tid + stride
     end
@@ -247,7 +353,7 @@ PolyHok.defmodule Ske do
 
     threadsPerBlock = 256
     blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
-    numberOfBlocks = blocksPerGrid
+    numberOfBlocks = 4096
 
     case type do
       {:f, 32} ->
@@ -388,6 +494,7 @@ PolyHok.defmodule Ske do
     size = Tuple.product(shape)
     threadsPerBlock = 128
     numberOfBlocks = div(size + threadsPerBlock - 1, threadsPerBlock)
+    # numberOfBlocks = 4096
 
     PolyHok.spawn(
       &Ske.map_ker/4,
@@ -412,6 +519,14 @@ PolyHok.defmodule Ske do
 
     if id < size do
       out[id] = f(a1[id], a2[id], a3[id])
+    end
+  end
+
+  defk map4_kernel(a1, a2, a3, a4, out, size, f) do
+    id = blockIdx.x * blockDim.x + threadIdx.x
+
+    if id < size do
+      out[id] = f(a1[id], a2[id], a3[id], a4[id])
     end
   end
 
@@ -462,6 +577,44 @@ PolyHok.defmodule Ske do
       t1,
       t2,
       t3,
+      result_gpu,
+      size,
+      func
+    ])
+
+    result_gpu
+  end
+
+  def map4(t1, t2, t3, t4, func) do
+    shape1 = PolyHok.get_shape_gnx(t1)
+    shape2 = PolyHok.get_shape_gnx(t2)
+    shape3 = PolyHok.get_shape_gnx(t3)
+    shape4 = PolyHok.get_shape_gnx(t4)
+
+    if shape1 != shape2 or shape1 != shape3 or shape1 != shape4 do
+      raise "map4: input shapes must match, got #{inspect(shape1)}, #{inspect(shape2)}, #{inspect(shape3)}, #{inspect(shape4)}"
+    end
+
+    type1 = PolyHok.get_type_gnx(t1)
+    type2 = PolyHok.get_type_gnx(t2)
+    type3 = PolyHok.get_type_gnx(t3)
+    type4 = PolyHok.get_type_gnx(t4)
+
+    if type1 != type2 or type1 != type3 or type1 != type4 do
+      raise "map4: input types must match, got #{inspect(type1)}, #{inspect(type2)}, #{inspect(type3)}, #{inspect(type4)}"
+    end
+
+    size = Tuple.product(shape1)
+    result_gpu = PolyHok.new_gnx(shape1, type1)
+
+    threadsPerBlock = 256
+    numberOfBlocks = div(size + threadsPerBlock - 1, threadsPerBlock)
+
+    PolyHok.spawn(&Ske.map4_kernel/7, {numberOfBlocks, 1, 1}, {threadsPerBlock, 1, 1}, [
+      t1,
+      t2,
+      t3,
+      t4,
       result_gpu,
       size,
       func
