@@ -35,16 +35,15 @@ random_generator = fn n, low, high ->
   t
 end
 
-size_exp = 22 
+size_exp = 22
 size = Integer.pow(2, size_exp)
 arr1 = random_generator.(size, -2.0, 3.0)
 
+d_arr1 = PolyHok.new_gnx(arr1)
 prev = System.monotonic_time()
 
 host_res1 =
-  arr1
-  |> PolyHok.new_gnx()
-  |> Ske.map(&PMap.square/1)
+  Ske.map(d_arr1, &PMap.square/1)
   |> Ske.map(&PMap.f3/1)
   |> Ske.map(&PMap.f4/1)
   |> PolyHok.get_gnx()

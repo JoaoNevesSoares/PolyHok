@@ -41,15 +41,14 @@ size_exp = 22
 size = Integer.pow(2, size_exp)
 arr1 = random_generator.(size, -2.0, 3.0)
 
-prev = System.monotonic_time()
-
 d_arr1 = PolyHok.new_gnx(arr1)
+
+prev = System.monotonic_time()
 host_res1 =
   Fusion.with_fusion(Ske.map(d_arr1,&PMap.square/1)
   |> Ske.map(&PMap.f3/1)
   |> Ske.map(&PMap.f4/1))
   |> PolyHok.get_gnx()
-
 next = System.monotonic_time()
 
 IO.puts(
