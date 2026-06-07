@@ -183,7 +183,7 @@ PolyHok.defmodule NN do
   end
 
   defd euclid(lat, lng) do
-    sqrtf(lat * lat + lng * lng)
+    return sqrtf(lat * lat + lng * lng)
   end
 
   defd menor(x, y) do
