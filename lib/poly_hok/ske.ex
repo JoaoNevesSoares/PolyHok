@@ -11,8 +11,8 @@ PolyHok.defmodule Ske do
       raise "map2Reduce: input shapes must match, got #{inspect(shape1)} and #{inspect(shape2)}"
     end
 
-    type1 = PolyHok.get_type_gnx(t1)
-    type2 = PolyHok.get_type_gnx(t2)
+    type1 = PolyHok.get_type(t1)
+    type2 = PolyHok.get_type(t2)
 
     if type1 != type2 do
       raise "map2Reduce: input types must match, got #{inspect(type1)} and #{inspect(type2)}"
@@ -78,10 +78,10 @@ PolyHok.defmodule Ske do
       raise "map4Reduce: input shapes must match, got #{inspect(shape1)}, #{inspect(shape2)}, #{inspect(shape3)}, #{inspect(shape4)}"
     end
 
-    type1 = PolyHok.get_type_gnx(t1)
-    type2 = PolyHok.get_type_gnx(t2)
-    type3 = PolyHok.get_type_gnx(t3)
-    type4 = PolyHok.get_type_gnx(t4)
+    type1 = PolyHok.get_type(t1)
+    type2 = PolyHok.get_type(t2)
+    type3 = PolyHok.get_type(t3)
+    type4 = PolyHok.get_type(t4)
 
     if type1 != type2 or type1 != type3 or type1 != type4 do
       raise "map4Reduce: input types must match, got #{inspect(type1)}, #{inspect(type2)}, #{inspect(type3)}, #{inspect(type4)}"
@@ -137,7 +137,7 @@ PolyHok.defmodule Ske do
 
   def mapReduce(ref, initial, map_f, red_f) do
     shape = PolyHok.get_shape_gnx(ref)
-    type = PolyHok.get_type_gnx(ref)
+    type = PolyHok.get_type(ref)
     size = Tuple.product(shape)
 
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
@@ -347,7 +347,7 @@ PolyHok.defmodule Ske do
 
   def reduce(ref, initial, f) do
     shape = PolyHok.get_shape_gnx(ref)
-    type = PolyHok.get_type_gnx(ref)
+    type = PolyHok.get_type(ref)
     size = Tuple.product(shape)
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
 
@@ -532,7 +532,7 @@ PolyHok.defmodule Ske do
 
   def map2(t1, t2, func) do
     shape = PolyHok.get_shape_gnx(t1)
-    type = PolyHok.get_type_gnx(t2)
+    type = PolyHok.get_type(t2)
     size = Tuple.product(shape)
     result_gpu = PolyHok.new_gnx(shape, type)
 
@@ -559,9 +559,9 @@ PolyHok.defmodule Ske do
       raise "map3: input shapes must match, got #{inspect(shape1)}, #{inspect(shape2)}, #{inspect(shape3)}"
     end
 
-    type1 = PolyHok.get_type_gnx(t1)
-    type2 = PolyHok.get_type_gnx(t2)
-    type3 = PolyHok.get_type_gnx(t3)
+    type1 = PolyHok.get_type(t1)
+    type2 = PolyHok.get_type(t2)
+    type3 = PolyHok.get_type(t3)
 
     if type1 != type2 or type1 != type3 do
       raise "map3: input types must match, got #{inspect(type1)}, #{inspect(type2)}, #{inspect(type3)}"
@@ -595,10 +595,10 @@ PolyHok.defmodule Ske do
       raise "map4: input shapes must match, got #{inspect(shape1)}, #{inspect(shape2)}, #{inspect(shape3)}, #{inspect(shape4)}"
     end
 
-    type1 = PolyHok.get_type_gnx(t1)
-    type2 = PolyHok.get_type_gnx(t2)
-    type3 = PolyHok.get_type_gnx(t3)
-    type4 = PolyHok.get_type_gnx(t4)
+    type1 = PolyHok.get_type(t1)
+    type2 = PolyHok.get_type(t2)
+    type3 = PolyHok.get_type(t3)
+    type4 = PolyHok.get_type(t4)
 
     if type1 != type2 or type1 != type3 or type1 != type4 do
       raise "map4: input types must match, got #{inspect(type1)}, #{inspect(type2)}, #{inspect(type3)}, #{inspect(type4)}"
