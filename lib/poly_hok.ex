@@ -1,11 +1,11 @@
 defmodule PolyHok do
   @on_load :load_nifs
-  def load_nifs do
+
+  defp load_nifs do
     load_info = :erlang.load_nif(String.to_charlist("./priv/gpu_nifs"), 0)
     case load_info do
        :ok -> :ok
        {:error, {reason, text}} -> raise("failed to load NIF library: #{inspect(reason)}: #{to_string(text)}")
-       _ -> IO.puts("test")
     end
   end
 
