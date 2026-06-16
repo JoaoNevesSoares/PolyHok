@@ -1,7 +1,12 @@
 defmodule PolyHok do
   @on_load :load_nifs
   def load_nifs do
-    :erlang.load_nif("./priv/gpu_nifs", 0)
+    load_info = :erlang.load_nif(String.to_charlist("./priv/gpu_nifs"), 0)
+    case load_info do
+       :ok -> :ok
+       {:error, {reason, text}} -> raise("failed to load NIF library: #{inspect(reason)}: #{to_string(text)}")
+       _ -> IO.puts("test")
+    end
   end
 
   defmacro clo({:fn, aa, [{:->, bb, [para, body]}]}) do
