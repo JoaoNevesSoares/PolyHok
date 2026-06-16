@@ -1,6 +1,13 @@
 require PolyHok
 use Ske
 
+####
+#
+# this is an example on how to use the erlang nif to generate random data directly
+# into GPU global memory
+#
+####
+
 PolyHok.defmodule Hello do
   # define a kernel, i.e., a function that will execute entirely on the GPU
   defk hello_kernel() do
