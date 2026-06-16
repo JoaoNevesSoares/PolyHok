@@ -106,10 +106,6 @@ defmodule PolyHok do
 
   ########   GNX stuff
 
-  def get_type_({:nx, type, _shape, _name, _ref}) do
-    type
-  end
-
   def get_type({:nx, type, _shape, _name, _ref}) do
     type
   end
