@@ -1,0 +1,1 @@
+{application,polyhok,[{modules,['Elixir.JIT','Elixir.PolyHok','Elixir.PolyHok.CudaBackend','Elixir.PolyHok.TypeInference','Elixir.Ske']},{optional_applications,[]},{applications,[kernel,stdlib,elixir,matrex,nx]},{description,"polyhok"},{registered,[]},{vsn,"1.0.0"}]}.
