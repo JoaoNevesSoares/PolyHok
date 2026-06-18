@@ -3,9 +3,13 @@ defmodule PolyHok do
 
   defp load_nifs do
     load_info = :erlang.load_nif(String.to_charlist("./priv/gpu_nifs"), 0)
+
     case load_info do
-       :ok -> :ok
-       {:error, {reason, text}} -> raise("failed to load NIF library: #{inspect(reason)}: #{to_string(text)}")
+      :ok ->
+        :ok
+
+      {:error, {reason, text}} ->
+        raise("failed to load NIF library: #{inspect(reason)}: #{to_string(text)}")
     end
   end
 
@@ -149,8 +153,8 @@ defmodule PolyHok do
   # end
 
   def random_gnx(low, high, n) do
-  {:nx, {:f, 32}, {n}, [nil], create_gpu_array_random_nx_nif(low, high, n)}
-end
+    {:nx, {:f, 32}, {n}, [nil], create_gpu_array_random_nx_nif(low, high, n)}
+  end
 
   def new_gnx(l, c, type) do
     ref =
@@ -241,50 +245,51 @@ end
   def create_gpu_array_random_nx_nif(_low, _high, _n) do
     :erlang.nif_error(:nif_not_loaded)
   end
+
   def new_gpu_array_nif(_l, _c, _type) do
-    raise "NIF new_gpu_array_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def get_gpu_array_nif(_matrex, _l, _c, _type) do
-    raise "NIF get_gpu_array_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def create_gpu_array_nx_nif(_matrex, _l, _c, _type) do
-    raise "NIF create_gpu_array_nx_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def new_gpu_nx_nif(_l, _c, _type) do
-    raise "NIF get_nx_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def get_nx_nif(_matrex, _l, _c, _type) do
-    raise "NIF get_nx_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def create_nx_ref_nif(_matrex, _l, _c, _type) do
-    raise "NIF create_nx_ref_nif/4 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def create_ref_nif(_matrex) do
-    raise "NIF create_ref_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   ######  GMatrex stuff:
 
   def new_pinned_nif(_list, _length) do
-    raise "NIF new_pinned_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def new_gmatrex_pinned_nif(_array) do
-    raise "NIF new_gmatrex_pinned_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def new_ref_nif(_matrex) do
-    raise "NIF new_ref_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def synchronize_nif() do
-    raise "NIF new_ref_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def synchronize() do
@@ -292,15 +297,28 @@ end
   end
 
   def get_matrex_nif(_ref, _rows, _cols) do
-    raise "NIF get_matrex_nif/1 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def load_kernel_nif(_module, _fun) do
-    raise "NIF load_kernel_nif/2 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   def load_fun_nif(_module, _fun) do
-    raise "NIF load_fun_nif/2 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
+  end
+
+  # I should verify where this code is being used, because it was not working properly before and that's might be a sight that it wans't being used.
+  def load_ast(kernel_name) when is_atom(kernel_name) do
+    send(:module_server, {:get_ast, kernel_name, self()})
+
+    receive do
+      {:ast, ast} ->
+        ast
+
+      h ->
+        raise "unknown message for function type server #{inspect(h)}"
+    end
   end
 
   ############################################################## Loading types and asts from files
@@ -319,18 +337,6 @@ end
     receive do
       {:ast, ast} -> ast
       h -> raise "unknown message for function type server #{inspect(h)}"
-    end
-  end
-
-  def load_ast(kernel_name) when is_atom(kernel_name) do
-    send(:module_server, {:get_ast, kernel_name, self()})
-
-    receive do
-      {:ast, ast} ->
-        ast
-
-      h ->
-        raise "unknown message for function type server #{inspect(h)}"
     end
   end
 
@@ -570,10 +576,10 @@ end
     )
   end
 
-  def spawn_nif(_k, _t, _b, _l), do: raise("NIF spawn_nif/1 not implemented")
+  def spawn_nif(_k, _t, _b, _l), do: :erlang.nif_error(:nif_not_loaded) 
 
   def jit_compile_and_launch_nif(_n, _k, _t, _b, _size, _types, _l) do
-    raise "NIF jit_compile_and_launch_nif/7 not implemented"
+    :erlang.nif_error(:nif_not_loaded)
   end
 
   # defp maybe_dump_jit_cuda_source(kernel_name, prog) do
@@ -688,5 +694,4 @@ end
         function,
         <<accumulator::binary, function.(size)::float-little-32>>
       )
-
 end
