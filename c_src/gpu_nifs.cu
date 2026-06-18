@@ -11,6 +11,21 @@
 #include <nvrtc.h>
 #include <curand.h>
 
+#define CUDA_DRV_CHECK(call)                                      \
+    do {                                                          \
+        CUresult err__ = (call);                                  \
+        if (err__ != CUDA_SUCCESS) {                              \
+            const char *name = NULL;                              \
+            const char *msg = NULL;                               \
+            cuGetErrorName(err__, &name);                         \
+            cuGetErrorString(err__, &msg);                        \
+            fprintf(stderr, "CUDA driver error at %s:%d: %s, %s\n",\
+                    __FILE__, __LINE__,                           \
+                    name ? name : "unknown",                      \
+                    msg ? msg : "no message");                    \
+            exit(EXIT_FAILURE);                                   \
+        }                                                         \
+    } while (0)
 
 __global__ void scale(const float a, const float b, float *xs, int n) { 
   int tid = threadIdx.x + blockIdx.x * blockDim.x;  
@@ -46,7 +61,7 @@ void init_cuda(ErlNifEnv *env)
        //CUdevice   device;
        int device = 0;
       // printf("aqui!\n");
-       cuInit(0);
+       CUDA_DRV_CHECK(cuInit(0));
 
        //err = cuDeviceGet(&device, 0);
        //if(err != CUDA_SUCCESS)  
