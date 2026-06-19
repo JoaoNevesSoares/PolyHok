@@ -180,14 +180,6 @@ static ERL_NIF_TERM jit_compile_and_launch_nif(ErlNifEnv *env, int argc,
   CUmodule module = NULL;
   CUfunction function = NULL;
 
-  /// START COLLECTING TIME
-
-  // float time;
-  // cudaEvent_t start, stop;
-  //  cudaEventCreate(&start) ;
-  // cudaEventCreate(&stop) ;
-  // cudaEventRecord(start, 0) ;
-
   /////////// get name kernel
 
   ERL_NIF_TERM e_name = argv[0];
@@ -365,16 +357,16 @@ static ERL_NIF_TERM jit_compile_and_launch_nif(ErlNifEnv *env, int argc,
 
   // LAUNCH KERNEL
 
-  /// END COLLECTING TIME
-
-  // printf("cuda%s\t%3.1f\n", kernel_name,time);
-
   init_cuda(env);
 
   CUcontext current_before_launch;
   cuCtxGetCurrent(&current_before_launch);
   CUDA_DRV_CHECK(cuLaunchKernel(function, b1, b2, b3, t1, t2, t3, 0, 0, args, 0));
   CUDA_DRV_CHECK(cuCtxSynchronize());
+  // These two were included recently
+  delete ptx;
+  cuModuleUnload(module);
+
   return enif_make_int(env, 0);
 }
 
