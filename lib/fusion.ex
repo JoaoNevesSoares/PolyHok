@@ -1,6 +1,4 @@
 defmodule Fusion do
-  require PolyHok
-
   defmodule AstCall do
     @moduledoc false
 
@@ -412,6 +410,10 @@ defmodule Fusion do
 
     local_vars = collect_local_vars(body, param_vars)
     renamed = rename_local_vars(body, stage_idx, local_vars)
+      # case kernel_ast do
+      #   {{_, _, [_, :clo]}, _, _} -> body
+      #   _ -> rename_local_vars(body, stage_idx, local_vars)
+      # end
 
     param_map =
       Enum.zip(formal_args, actual_args)
@@ -599,10 +601,45 @@ defmodule Fusion do
     end
   end
 
+  defp build_cached_clo_fun(key, args, body) do
+    name = stable_fusion_name(key)
+    function_ast = build_fn_ast(args, body)
+    # funs = JIT.find_functions(function_ast)
+    free = JIT.find_free_vars(function_ast)
+    extra = Enum.map(free, fn p -> {p, [], nil} end)
+    free = Enum.map(free, fn p -> String.to_atom(name <> Atom.to_string(p)) end)
+    {:fn, aaa, [{:->, bbb, [paraa, bodyy]}]} = function_ast
+    function = {:fn, aaa, [{:->, bbb, [paraa ++ extra, bodyy]}]}
+    funs = JIT.find_functions(function)
+    IO.inspect(function, label: "function func")
+    IO.inspect(free, label: "return of free vars")
+    resp =
+      quote(
+        do:
+          {:closure, unquote(name),
+           {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}, unquote(free),
+           unquote(extra)}
+      )
+    resp
+  end
+
   defp build_cached_anon_fun(key, args, body) do
     function_ast = build_fn_ast(args, body)
     funs = JIT.find_functions(function_ast)
     build_anon_fun_ast(stable_fusion_name(key), function_ast, funs)
+  end
+
+  defp check_if_clo(calls) do
+    Enum.reduce_while(calls, nil, fn ast_call, _acc ->
+      case ast_call.kernel_ast do
+        {{_, _, [_, :clo]}, _, _} ->
+          # IO.inspect(alo)
+          {:halt, true}
+
+        _ ->
+          {:cont, false}
+      end
+    end)
   end
 
   defp fuse_map_chain_calls(calls) do
@@ -617,6 +654,9 @@ defmodule Fusion do
             "full-chain map fusion supports only map/map2/map3/map4 calls, got #{inspect(invalid.ske)}"
     end
 
+    # IO.inspect(calls, label: "inspecting calls")
+    is_clo = check_if_clo(calls)
+    # IO.inspect(is_clo, label: "is clo test")
     key = normalize_fusion_key(calls)
 
     case fusion_cache_get(key) do
@@ -630,10 +670,20 @@ defmodule Fusion do
             fuse_map_stage(call, idx, acc)
           end)
 
+        # IO.inspect(state, label: "Inspecting state")
         input_data_asts = Enum.map(state.input_order, fn {data_ast, _var_ast} -> data_ast end)
         input_vars = Enum.map(state.input_order, fn {_data_ast, var_ast} -> var_ast end)
-        fused_fun = build_cached_anon_fun(key, input_vars, state.body ++ [state.value_ast])
 
+        fused_fun =
+          cond do
+            is_clo == true ->
+              build_cached_clo_fun(key, input_vars, state.body ++ [state.value_ast])
+
+            true ->
+              build_cached_anon_fun(key, input_vars, state.body ++ [state.value_ast])
+          end
+
+        # IO.inspect(fused_fun, label: "Inspecting fused_fun")
         fusion_cache_put(key, fused_fun)
         %{inputs: input_data_asts, fun: fused_fun}
 
@@ -752,6 +802,9 @@ defmodule Fusion do
       {{:., _, [{:__aliases__, _, [:PolyHok]}, :phok]}, _, _} ->
         comp_ast_phok(kernel_ast)
 
+      {{:., _, [{:__aliases__, _, [:PolyHok]}, :clo]}, _, _} ->
+        comp_ast_clo(kernel_ast)
+
       # &Mod.fun/arity
       {:&, _, _} ->
         comp_ast_device(kernel_ast)
@@ -760,6 +813,13 @@ defmodule Fusion do
         raise ArgumentError,
               "unsupported kernel AST in Fusion: #{Macro.to_string(other)}"
     end
+  end
+
+  defp comp_ast_clo(
+         {{:., _, [{:__aliases__, _, [:PolyHok]}, :clo]}, _,
+          [{:fn, _, [{:->, _, [args, body_ast]}]}]}
+       ) do
+    {args, normalize_body_ast(body_ast)}
   end
 
   defp comp_ast_phok(
