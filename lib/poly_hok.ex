@@ -34,7 +34,6 @@ defmodule PolyHok do
            {unquote(Macro.escape(function)), unquote(Macro.escape(funs))}, unquote(free),
            unquote(extra)}
       )
-
     resp
   end
 
@@ -538,6 +537,8 @@ defmodule PolyHok do
 
     # IO.inspect(kast, label: "Kast = ")
     {kast, l} = JIT.closure_elimination(kast, l)
+    IO.inspect(kast, label: "kast")
+    IO.inspect(l, label: "<<<l>>>")
 
     delta = JIT.gen_types_delta(kast, l)
     inf_types = JIT.infer_types(kast, delta)
@@ -576,7 +577,7 @@ defmodule PolyHok do
     )
   end
 
-  def spawn_nif(_k, _t, _b, _l), do: :erlang.nif_error(:nif_not_loaded) 
+  def spawn_nif(_k, _t, _b, _l), do: :erlang.nif_error(:nif_not_loaded)
 
   def jit_compile_and_launch_nif(_n, _k, _t, _b, _size, _types, _l) do
     :erlang.nif_error(:nif_not_loaded)
