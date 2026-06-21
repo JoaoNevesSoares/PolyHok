@@ -368,6 +368,7 @@ end
 
   defp builtin_function_type(:rsqrtf), do: {:float, [:float]}
   defp builtin_function_type(:sqrtf), do: {:float, [:float]}
+  defp builtin_function_type(:sinf), do: {:float, [:float]}
   defp builtin_function_type(_fun_name), do: nil
 
 ####################################################
