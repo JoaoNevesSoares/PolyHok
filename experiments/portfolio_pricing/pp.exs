@@ -1,4 +1,5 @@
 require PolyHok
+require Fusion
 use Ske
 
 PolyHok.defmodule PortfolioPricing do
@@ -53,6 +54,10 @@ PolyHok.defmodule PortfolioPricing do
     end
   end
 
+  defd weight_multiply(price, weight) do
+    price * weight
+  end
+
   defp cnd(d) do
     a1 = 0.31938153
     a2 = -0.356563782
@@ -94,10 +99,39 @@ PolyHok.defmodule PortfolioPricing do
     end)
   end
 
-  # def run_unfs(n) do
-  #   riskfree = 0.02
-  #   volatility = 0.30
-  # end
+  def run_unfs(stock, strike, years, weight, volatility, riskfree) do
+
+    res =
+      Ske.map3(
+        stock,
+        strike,
+        years,
+        PolyHok.clo(fn st, str, y ->
+          PortfolioPricing.blackscholes_body(st, str, y, riskfree, volatility)
+        end)
+      )
+      |> Ske.map2(weight, &PortfolioPricing.weight_multiply/2)
+      |> Ske.reduce(0.0, PolyHok.phok(fn stock_value, total -> stock_value + total end))
+
+    res
+  end
+
+  def run_fs(stock, strike, years, weight, volatility, riskfree) do
+
+    res =
+      Fusion.with_fusion(
+        Ske.map3(
+          stock,
+          strike,
+          years,
+          PolyHok.clo(fn st, str, y ->
+            PortfolioPricing.blackscholes_body(st, str, y, riskfree, volatility)
+          end)
+        )
+        |> Ske.map2(weight, &PortfolioPricing.weight_multiply/2))
+      |> Ske.reduce(0.0, PolyHok.phok(fn stock_value, total -> stock_value + total end))
+    res
+  end
 
   def run_spawn(n) do
     riskfree = 0.02
@@ -130,27 +164,33 @@ PolyHok.defmodule PortfolioPricing do
 
   defp format_float(v), do: :erlang.float_to_binary(v, [{:scientific, 6}])
 
-  def compare_gpu_vs_cpu do
-    n = 1_048_576
-    abs_tol = 1.0e-4
-    rel_tol = 1.0e-6
-
-    gpu = run_spawn(n) 
-    gpu_res = Nx.to_number(gpu[0][0]) |> IO.inspect(label: "gpu_res")
-    cpu_res = run_cpu(n) |> IO.inspect(label: "cpu_res")
-    abs_err = abs(gpu_res - cpu_res)
-    rel_err = abs_err / max(abs(cpu_res), 1.0e-12)
-    IO.puts("The total value of the call options portfolio is: " <> format_float(gpu_res))
-    IO.puts("CPU reference portfolio value: " <> format_float(cpu_res))
-    IO.puts("Absolute error: " <> format_float(abs_err))
-    IO.puts("Relative error: " <> format_float(rel_err))
-
-    if abs_err <= abs_tol or rel_err <= rel_tol do
-      IO.puts("Test passed.")
-    else
-      IO.puts("Test failed!")
-    end
-  end
+  # def compare_gpu_vs_cpu do
+  #   n = 1_048_576
+  #   abs_tol = 1.0e-4
+  #   rel_tol = 1.0e-6
+  #
+  #   stock = PolyHok.random_gnx(5, 30, n)
+  #   strike = PolyHok.random_gnx(1, 100, n)
+  #   years = PolyHok.random_gnx(1, 10, n)
+  #   weight = PolyHok.random_gnx(-2, 2, n)
+  #
+  #   # gpu = run_spawn(n)
+  #   gpu = run_fs(stock, strike, years, weight) |> PolyHok.get_gnx()
+  #   gpu_res = Nx.to_number(gpu[0][0]) |> IO.inspect(label: "gpu_res")
+  #   cpu_res = run_cpu(n) |> IO.inspect(label: "cpu_res")
+  #   abs_err = abs(gpu_res - cpu_res)
+  #   rel_err = abs_err / max(abs(cpu_res), 1.0e-12)
+  #   IO.puts("The total value of the call options portfolio is: " <> format_float(gpu_res))
+  #   IO.puts("CPU reference portfolio value: " <> format_float(cpu_res))
+  #   IO.puts("Absolute error: " <> format_float(abs_err))
+  #   IO.puts("Relative error: " <> format_float(rel_err))
+  #
+  #   if abs_err <= abs_tol or rel_err <= rel_tol do
+  #     IO.puts("Test passed.")
+  #   else
+  #     IO.puts("Test failed!")
+  #   end
+  # end
 end
 
-PortfolioPricing.compare_gpu_vs_cpu()
+# PortfolioPricing.compare_gpu_vs_cpu()
