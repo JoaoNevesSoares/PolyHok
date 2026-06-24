@@ -1,3 +1,4 @@
+#include <cstring>
 #include <erl_nif.h>
 
 #include <assert.h>
@@ -25,11 +26,22 @@
     }                                                                          \
   } while (0)
 
-__global__ void scale(const float a, const float b, float *xs, int n) {
+template <typename T>
+__global__ void scale(const T a, const T b, T *xs, int n) {
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int str = blockDim.x * gridDim.x;
   for (int i = tid; i < n; i += str) {
     xs[i] = a + (b - a) * xs[i];
+  }
+}
+__global__ void map_to_range(int low, int high, unsigned int *xs, int n) {
+  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+  int stride = blockDim.x * gridDim.x;
+
+  int range = high - low;
+
+  for (int i = tid; i < n; i += stride) {
+    xs[i] = low + (xs[i] % range);
   }
 }
 
@@ -57,12 +69,12 @@ ErlNifResourceType *ARRAY_TYPE;
 ErlNifResourceType *PINNED_ARRAY;
 
 void dev_array_destructor(ErlNifEnv *env, void *res) {
-  CUdeviceptr *dev_array = (CUdeviceptr*) res; 
+  CUdeviceptr *dev_array = (CUdeviceptr *)res;
   CUDA_DRV_CHECK(cuMemFree(*dev_array));
 }
 
 void dev_pinned_array_destructor(ErlNifEnv *env, void *res) {
-  CUdeviceptr *dev_array = (CUdeviceptr*) res; 
+  CUdeviceptr *dev_array = (CUdeviceptr *)res;
   CUDA_DRV_CHECK(cuMemFree(*dev_array));
 }
 
@@ -361,7 +373,8 @@ static ERL_NIF_TERM jit_compile_and_launch_nif(ErlNifEnv *env, int argc,
 
   CUcontext current_before_launch;
   cuCtxGetCurrent(&current_before_launch);
-  CUDA_DRV_CHECK(cuLaunchKernel(function, b1, b2, b3, t1, t2, t3, 0, 0, args, 0));
+  CUDA_DRV_CHECK(
+      cuLaunchKernel(function, b1, b2, b3, t1, t2, t3, 0, 0, args, 0));
   CUDA_DRV_CHECK(cuCtxSynchronize());
   // These two were included recently
   delete ptx;
@@ -497,9 +510,8 @@ static ERL_NIF_TERM get_gpu_array_nif(ErlNifEnv *env, int argc,
   return result;
 }
 
-static ERL_NIF_TERM create_gpu_array_random_nx_nif(ErlNifEnv *env, int argc,
-                                                   const ERL_NIF_TERM argv[]) {
-
+static ERL_NIF_TERM create_random_nx_nif(ErlNifEnv *env, int argc,
+                                         const ERL_NIF_TERM argv[]) {
   int low, high, n;
   if (!enif_get_int(env, argv[0], &low)) {
     return enif_make_badarg(env);
@@ -510,20 +522,41 @@ static ERL_NIF_TERM create_gpu_array_random_nx_nif(ErlNifEnv *env, int argc,
   if (!enif_get_int(env, argv[2], &n)) {
     return enif_make_badarg(env);
   }
+  ERL_NIF_TERM e_type_name = argv[3];
+  unsigned int size_type_name;
+  if (!enif_get_list_length(env, e_type_name, &size_type_name)) {
+    return enif_make_badarg(env);
+  }
+
+  printf("size_type_name: %u\n", size_type_name);
+
+  char type_name[1024];
+  enif_get_string(env, e_type_name, type_name, size_type_name + 1,
+                  ERL_NIF_LATIN1);
 
   init_cuda(env);
   CUdeviceptr dev_array;
-  CUDA_DRV_CHECK(cuMemAlloc(&dev_array, sizeof(float) * n));
-
   curandGenerator_t gen;
-
   curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-  curandGenerateUniform(gen, (float *)dev_array, n);
-  scale<<<(n + 127) / 128, 128>>>((float)low, (float)high, (float *)dev_array,
-                                  n);
+
+  if (strcmp(type_name, "double") == 0) {
+    CUDA_DRV_CHECK(cuMemAlloc(&dev_array, sizeof(double) * n));
+    curandGenerateUniformDouble(gen, (double *)dev_array, n);
+    scale<double><<<(n + 127) / 128, 128>>>((double)low, (double)high,
+                                            (double *)dev_array, n);
+  } else if (strcmp(type_name, "int") == 0) {
+    CUDA_DRV_CHECK(cuMemAlloc(&dev_array, sizeof(int) * n));
+    curandGenerate(gen, (unsigned int *)dev_array, n);
+    map_to_range<<<(n + 127) / 128, 128>>>(low, high, (unsigned int *)dev_array,
+                                           n);
+  } else {
+    CUDA_DRV_CHECK(cuMemAlloc(&dev_array, sizeof(float) * n));
+    curandGenerateUniform(gen, (float *)dev_array, n);
+    scale<float><<<(n + 127) / 128, 128>>>((float)low, (float)high,
+                                           (float *)dev_array, n);
+  }
   cudaDeviceSynchronize();
   curandDestroyGenerator(gen);
-
   CUdeviceptr *gpu_res =
       (CUdeviceptr *)enif_alloc_resource(ARRAY_TYPE, sizeof(CUdeviceptr));
   *gpu_res = dev_array;
@@ -1586,7 +1619,7 @@ static ErlNifFunc nif_funcs[] = {
     {"new_gpu_array_nif", 3, new_gpu_array_nif},
     {"get_gpu_array_nif", 4, get_gpu_array_nif},
     {"create_gpu_array_nx_nif", 4, create_gpu_array_nx_nif},
-    {"create_gpu_array_random_nx_nif", 3, create_gpu_array_random_nx_nif},
+    {"create_random_nx_nif", 4, create_random_nx_nif},
     {"load_kernel_nif", 2, load_kernel_nif},
     {"load_fun_nif", 2, load_fun_nif},
     {"new_pinned_nif", 2, new_pinned_nif},

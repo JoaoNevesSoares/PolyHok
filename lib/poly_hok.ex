@@ -60,7 +60,7 @@ defmodule PolyHok do
     ast_new_module
   end
 
-  # Canonicalize DSL-only calls so downstream passes do not depend on caller imports.
+  # simplify DSL-only calls so downstream passes do not depend on caller imports.
   defp normalize_dsl_body({:__block__, meta, definitions}) do
     {:__block__, meta, Enum.map(definitions, &normalize_dsl_definition/1)}
   end
@@ -147,12 +147,17 @@ defmodule PolyHok do
     {:nx, type, shape, name, ref}
   end
 
-  # def random_gnx(low, high, n) do
-  #   {:nx, {:f, 32}, {n}, [nil], create_gpu_array_random_nx_nif(low, high, n)}
-  # end
-
   def random_gnx(low, high, n) do
-    {:nx, {:f, 32}, {n}, [nil], create_gpu_array_random_nx_nif(low, high, n)}
+    random_gnx(low, high, n, {:f, 32})
+  end
+
+  def random_gnx(low, high, n, type) do
+    case type do
+       {:f, 32} -> {:nx, {:f, 32}, {n}, [nil], create_random_nx_nif(low, high, n, Kernel.to_charlist("float"))}
+       {:f, 64} -> {:nx, {:f, 64}, {n}, [nil], create_random_nx_nif(low, high, n, Kernel.to_charlist("double"))}
+       {:s, 32} -> {:nx, {:s, 32}, {n}, [nil], create_random_nx_nif(low, high, n, Kernel.to_charlist("int"))}
+       x -> raise "random_gnx: type #{x} not supported"
+    end
   end
 
   def new_gnx(l, c, type) do
@@ -241,7 +246,7 @@ defmodule PolyHok do
     {:f, 32}
   end
 
-  def create_gpu_array_random_nx_nif(_low, _high, _n) do
+  def create_random_nx_nif(_low, _high, _n, _type) do
     :erlang.nif_error(:nif_not_loaded)
   end
 
@@ -537,8 +542,8 @@ defmodule PolyHok do
 
     # IO.inspect(kast, label: "Kast = ")
     {kast, l} = JIT.closure_elimination(kast, l)
-    IO.inspect(kast, label: "kast")
-    IO.inspect(l, label: "<<<l>>>")
+    # IO.inspect(kast, label: "kast")
+    # IO.inspect(l, label: "<<<l>>>")
 
     delta = JIT.gen_types_delta(kast, l)
     inf_types = JIT.infer_types(kast, delta)
