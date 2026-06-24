@@ -1,5 +1,4 @@
 require PolyHok
-require PolyHokInspect
 require Fusion
 use Ske
 
