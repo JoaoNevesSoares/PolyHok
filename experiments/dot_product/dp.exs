@@ -3,7 +3,7 @@ require Fusion
 use Ske
 
 PolyHok.defmodule Dp do
-  defd sum(x, y) do
+  defd add(x, y) do
     x + y
   end
 
