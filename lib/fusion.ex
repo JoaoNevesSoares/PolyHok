@@ -611,8 +611,6 @@ defmodule Fusion do
     {:fn, aaa, [{:->, bbb, [paraa, bodyy]}]} = function_ast
     function = {:fn, aaa, [{:->, bbb, [paraa ++ extra, bodyy]}]}
     funs = JIT.find_functions(function)
-    IO.inspect(function, label: "function func")
-    IO.inspect(free, label: "return of free vars")
     resp =
       quote(
         do:
