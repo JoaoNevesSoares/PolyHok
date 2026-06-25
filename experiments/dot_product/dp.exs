@@ -7,19 +7,19 @@ PolyHok.defmodule Dp do
     x + y
   end
 
-  def dot_unfs(x, y) do
+  def dot_unfs(x, y, initial) do
     res =
       Ske.map2(x, y, PolyHok.phok(fn x, y -> x * y end))
-      |> Ske.reduce(0.0, &Dp.sum/2)
+      |> Ske.reduce(initial, &Dp.add/2)
 
     res
   end
 
-  def dot_fs(x, y) do
+  def dot_fs(x, y, initial) do
     res =
       Fusion.with_fusion(
         Ske.map2(x, y, PolyHok.phok(fn x, y -> x * y end))
-        |> Ske.reduce(0.0, &Dp.sum/2)
+        |> Ske.reduce(initial, &Dp.add/2)
       )
     res
   end
