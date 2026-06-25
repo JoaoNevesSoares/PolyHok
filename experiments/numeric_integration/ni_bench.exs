@@ -1,46 +1,65 @@
 Code.require_file("ni.exs", __DIR__)
 
 defmodule Nibench do
+  def run(:fused, ver) do
+    IO.inspect(ver)
+    start_time = System.monotonic_time()
+    res =
+      case ver do
+        "v2" ->
+          Ni.ni_fs_v2()
 
-def run(:fused) do
-start_time = System.monotonic_time() 
-res = Ni.ni_fs()
-end_time = System.monotonic_time()
-IO.inspect(res)
-System.convert_time_unit(end_time - start_time, :native, :millisecond)
-end
+        "v3" ->
+          Ni.ni_fs_v3()
 
-def run(:unfused) do
-start_time = System.monotonic_time()
-res = Ni.ni_unfs()
-end_time = System.monotonic_time()
-IO.inspect(res)
-System.convert_time_unit(end_time - start_time, :native, :millisecond)
-end
+        _ ->
+          Ni.ni_fs()
+      end
+    end_time = System.monotonic_time()
+    IO.inspect(res)
+    System.convert_time_unit(end_time - start_time, :native, :millisecond)
+  end
 
-def main() do
-argv = System.argv()
+  def run(:unfused, ver) do
+    IO.inspect(ver)
+    start_time = System.monotonic_time()
+    res =
+      case ver do
+        "v2" ->
+          Ni.ni_unfs_v2()
 
-{[{:size, n}, {:type, type} | _rest], [], []} =
-  OptionParser.parse(argv, strict: [size: :integer, type: :string])
+        "v3" ->
+          Ni.ni_unfs_v3()
+        _ ->
+          Ni.ni_unfs()
+      end
+    end_time = System.monotonic_time()
+    IO.inspect(res)
+    System.convert_time_unit(end_time - start_time, :native, :millisecond)
+  end
 
-file = File.open!("#{n}_ni.csv", [:write, :utf8])
+  def main() do
+    argv = System.argv()
 
-res =
-  Enum.reduce(1..30, [], fn _, acc ->
-    fs = run(:fused)
-    ufs = run(:unfused)
+    {[{:fun, ver} | _rest], [], []} =
+      OptionParser.parse(argv, strict: [fun: :string])
 
-    acc ++ [%{"unfused" => ufs, "fused" => fs}]
-  end)
+    file = File.open!("ni_#{ver}.csv", [:write, :utf8])
 
-  res 
-  |> CSV.encode(headers: ["unfused", "fused"])
-  |> Enum.each(&IO.write(file, &1))
+    res =
+      Enum.reduce(1..30, [], fn _, acc ->
+        fs = run(:fused, ver)
+        ufs = run(:unfused, ver)
 
-File.close(file)
+        acc ++ [%{"unfused" => ufs, "fused" => fs}]
+      end)
 
-end
+    res
+    |> CSV.encode(headers: ["unfused", "fused"])
+    |> Enum.each(&IO.write(file, &1))
+
+    File.close(file)
+  end
 end
 
 Nibench.main()
