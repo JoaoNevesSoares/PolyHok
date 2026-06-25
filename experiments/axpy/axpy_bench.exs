@@ -27,23 +27,31 @@ defmodule Axpybench do
   def main() do
     argv = System.argv()
 
-    {[{:size, n}, {:type, type} | _rest], [], []} =
-      OptionParser.parse(argv, strict: [size: :integer, type: :string])
+    {[{:size, n}, {:type, type}, {:order, ord} | _rest], [], []} =
+      OptionParser.parse(argv, strict: [size: :integer, type: :string, order: :integer])
 
-    file = File.open!("#{n}_#{type}_axpy.csv", [:write, :utf8])
+    file = File.open!("results/axpy/axpy_#{type}_#{n}_#{ord}_axpy.csv", [:write, :utf8])
 
     {dev_a, dev_b, dev_c} =
       case type do
         "float" -> gen_data(0, 10, n, {:f, 32})
         "double" -> gen_data(0, 10, n, {:f, 64})
-        "int" -> gen_data(0, 10, n, {:s, 32})
+        "integer" -> gen_data(0, 10, n, {:s, 32})
       end
-    res =
-      Enum.reduce(1..30, [], fn _, acc ->
-        fs = run(:fused, dev_a, dev_b, dev_c)
-        ufs = run(:unfused, dev_a, dev_b, dev_c)
 
-        acc ++ [%{"unfused" => ufs, "fused" => fs}]
+    start = ord
+    finish = 29 + ord
+    res =
+      Enum.reduce(start..finish, [], fn i, acc ->
+        if rem(i, 2) == 0 do
+          fs = run(:fused, dev_a, dev_b, dev_c)
+          ufs = run(:unfused, dev_a, dev_b, dev_c)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        else
+          ufs = run(:unfused, dev_a, dev_b, dev_c)
+          fs = run(:fused, dev_a, dev_b, dev_c)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        end
       end)
 
     res
