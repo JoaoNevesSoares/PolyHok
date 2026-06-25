@@ -2,26 +2,17 @@ require PolyHok
 import BoundAnalysis
 
 PolyHok.defmodule NBody do
-  def generate_bodies(num_bodies) do
-    PolyHok.random_gnx(0,1,num_bodies * 4)
-    # random_tensor(num_bodies * 4)
+  def generate_bodies(num_bodies, type) do
+    PolyHok.random_gnx(1, 2, num_bodies * 4, type)
   end
 
-  def generate_accelerations(num_bodies) do
-    PolyHok.random_gnx(0,1,num_bodies * 3)
-    # random_tensor(num_bodies * 3)
+  def generate_accelerations(num_bodies, type) do
+    PolyHok.random_gnx(1, 2,num_bodies * 3, type)
   end
 
-  def generate_velocities(num_bodies) do
-    PolyHok.random_gnx(0,1,num_bodies * 3)
-    # random_tensor(num_bodies * 3)
+  def generate_velocities(num_bodies, type) do
+    PolyHok.random_gnx(1, 2,num_bodies * 3, type)
   end
-
-  # defp random_tensor(count) do
-  #   values = for _ <- 1..count, do: :rand.uniform()
-  #
-  #   Nx.tensor(values, type: {:f, 32})
-  # end
 
   defk calculate_forces(bodies, accel, num_bodies) do
     tid = blockIdx.x * blockDim.x + threadIdx.x
@@ -67,60 +58,49 @@ PolyHok.defmodule NBody do
   end
 
   def run_spawn(num_bodies, positions, accel, velocities) do
-    PolyHok.spawn(
-      &NBody.calculate_forces/3,
-      {2048, 1, 1},
-      {128, 1, 1},
+    threadsPerBlock = 128
+    blocksPerGrid = div(num_bodies + threadsPerBlock - 1, threadsPerBlock)
+
+    PolyHok.spawn(&NBody.calculate_forces/3,
+      {blocksPerGrid, 1, 1},
+      {threadsPerBlock, 1, 1},
       [positions, accel, num_bodies]
     )
 
-    PolyHok.spawn(&NBody.calculate_velocities/4, {2048, 1, 1}, {128, 1, 1}, [
-      velocities,
-      accel,
-      0.01,
-      num_bodies
-    ])
+    PolyHok.spawn(&NBody.calculate_velocities/4, 
+      {blocksPerGrid, 1, 1}, 
+      {threadsPerBlock, 1, 1}, 
+      [velocities, accel, 0.01, num_bodies] 
+    )
 
-    PolyHok.spawn(&NBody.calculate_positions/4, {2048, 1, 1}, {128, 1, 1}, [
-      positions,
-      velocities,
-      0.01,
-      num_bodies
-    ])
-
+    PolyHok.spawn(&NBody.calculate_positions/4, 
+      {blocksPerGrid, 1, 1}, 
+      {threadsPerBlock, 1, 1}, 
+      [positions, velocities, 0.01, num_bodies]
+    )
     positions
   end
 
   def run_fused_spawn(num_bodies, positions, accel, velocities) do
-    PolyHok.spawn(
-      &NBody.calculate_forces/3,
-      {2048, 1, 1},
-      {128, 1, 1},
+    threadsPerBlock = 128
+    blocksPerGrid = div(num_bodies + threadsPerBlock - 1, threadsPerBlock)
+
+    PolyHok.spawn(&NBody.calculate_forces/3,
+      {blocksPerGrid, 1, 1},
+      {threadsPerBlock, 1, 1},
       [positions, accel, num_bodies]
     )
     fuse(
-      PolyHok.spawn(&NBodies.calculate_velocities/4, {2048, 1, 1}, {128, 1, 1}, [
-        velocities,
-        accel,
-        0.01,
-        num_bodies
-      ]),
-      PolyHok.spawn(&NBodies.calculate_positions/4, {2048, 1, 1}, {128, 1, 1}, [
-        positions,
-        velocities,
-        0.01,
-        num_bodies
-      ])
+      PolyHok.spawn(&NBodies.calculate_velocities/4,
+      {blocksPerGrid, 1, 1}, 
+      {threadsPerBlock, 1, 1},
+      [velocities, accel, 0.01, num_bodies]
+      ),
+      PolyHok.spawn(&NBodies.calculate_positions/4,
+      {blocksPerGrid, 1, 1}, 
+      {threadsPerBlock, 1, 1},
+      [positions, velocities, 0.01, num_bodies])
     )
     positions
   end
 end
-
-num_bodies = 262_144
-pos_body = NBody.generate_bodies(num_bodies)
-accel_body = NBody.generate_accelerations(num_bodies)
-vel_body = NBody.generate_velocities(num_bodies)
-# res_positions = NBody.run_spawn(num_bodies, pos_body, accel_body, vel_body)
-res_positions = NBody.run_fused_spawn(num_bodies, pos_body, accel_body, vel_body)
-PolyHok.get_gnx(res_positions)
-|> IO.inspect(label: "Result of NBodies")
