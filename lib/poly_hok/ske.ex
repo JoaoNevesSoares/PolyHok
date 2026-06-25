@@ -26,8 +26,8 @@ PolyHok.defmodule Ske do
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
 
     threadsPerBlock = 256
-    # blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
-    blocksPerGrid = 4096
+    blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
+    # blocksPerGrid = 4096
     numberOfBlocks = blocksPerGrid
 
     case type do
@@ -349,7 +349,7 @@ PolyHok.defmodule Ske do
     shape = PolyHok.get_shape_gnx(ref)
     type = PolyHok.get_type(ref)
     size = Tuple.product(shape)
-    result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
+    result_gpu  = PolyHok.new_gnx(Nx.tensor([[initial]] , type: type))
 
     threadsPerBlock = 256
     blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
