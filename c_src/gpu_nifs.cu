@@ -373,8 +373,7 @@ static ERL_NIF_TERM jit_compile_and_launch_nif(ErlNifEnv *env, int argc,
 
   CUcontext current_before_launch;
   cuCtxGetCurrent(&current_before_launch);
-  CUDA_DRV_CHECK(
-      cuLaunchKernel(function, b1, b2, b3, t1, t2, t3, 0, 0, args, 0));
+  CUDA_DRV_CHECK(cuLaunchKernel(function, b1, b2, b3, t1, t2, t3, 0, 0, args, 0));
   CUDA_DRV_CHECK(cuCtxSynchronize());
   // These two were included recently
   delete ptx;
