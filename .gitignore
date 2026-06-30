@@ -5,3 +5,4 @@ priv/
 examples_paper/
 benchmarks/
 .clangd
+.elixir_ls

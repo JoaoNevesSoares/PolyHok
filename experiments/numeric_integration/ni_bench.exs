@@ -4,6 +4,7 @@ defmodule Nibench do
   def run(:fused, ver) do
     IO.inspect(ver)
     start_time = System.monotonic_time()
+
     res =
       case ver do
         "v2" ->
@@ -15,6 +16,7 @@ defmodule Nibench do
         _ ->
           Ni.ni_fs()
       end
+
     end_time = System.monotonic_time()
     IO.inspect(res)
     System.convert_time_unit(end_time - start_time, :native, :millisecond)
@@ -23,6 +25,7 @@ defmodule Nibench do
   def run(:unfused, ver) do
     IO.inspect(ver)
     start_time = System.monotonic_time()
+
     res =
       case ver do
         "v2" ->
@@ -30,9 +33,11 @@ defmodule Nibench do
 
         "v3" ->
           Ni.ni_unfs_v3()
+
         _ ->
           Ni.ni_unfs()
       end
+
     end_time = System.monotonic_time()
     IO.inspect(res)
     System.convert_time_unit(end_time - start_time, :native, :millisecond)
@@ -41,17 +46,25 @@ defmodule Nibench do
   def main() do
     argv = System.argv()
 
-    {[{:fun, ver} | _rest], [], []} =
-      OptionParser.parse(argv, strict: [fun: :string])
+    {[{:fun, ver}, {:order, ord} | _rest], [], []} =
+      OptionParser.parse(argv, strict: [fun: :string, order: :integer])
 
-    file = File.open!("ni_#{ver}.csv", [:write, :utf8])
+    file = File.open!("results/ni/ni_#{ver}_#{ord}.csv", [:write, :utf8])
+
+    start = ord
+    finish = 29 + ord
 
     res =
-      Enum.reduce(1..30, [], fn _, acc ->
-        fs = run(:fused, ver)
-        ufs = run(:unfused, ver)
-
-        acc ++ [%{"unfused" => ufs, "fused" => fs}]
+      Enum.reduce(start..finish, [], fn i, acc ->
+        if rem(i, 2) == 0 do
+          fs = run(:fused, ver)
+          ufs = run(:unfused, ver)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        else
+          ufs = run(:unfused, ver)
+          fs = run(:fused, ver)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        end
       end)
 
     res

@@ -20,8 +20,8 @@ defmodule Nnbench do
   def main() do
     argv = System.argv()
 
-    {[{:file, in_file}, {:lat, lat_in}, {:lng, lng_in} | _rest], [], []} =
-      OptionParser.parse(argv, strict: [file: :string, lat: :float, lng: :float])
+    {[{:file, in_file}, {:lat, lat_in}, {:lng, lng_in}, {:order, ord} | _rest], [], []} =
+      OptionParser.parse(argv, strict: [file: :string, lat: :float, lng: :float, order: :integer])
 
     {lat, lg} =
       File.stream!(in_file)
@@ -29,7 +29,7 @@ defmodule Nnbench do
       |> Stream.map(fn {:ok, [lat, lg]} -> {String.to_float(lat), String.to_float(lg)} end)
       |> Enum.unzip()
 
-    file = File.open!("nn_cane04.csv", [:write, :utf8])
+    file = File.open!("results/nn/nn_#{in_file}_#{ord}.csv", [:write, :utf8])
 
     lat_gpu =
       Nx.tensor(lat)
@@ -38,11 +38,25 @@ defmodule Nnbench do
     lng_gpu =
       Nx.tensor(lg)
       |> PolyHok.new_gnx()
+
+    
+    IO.inspect(lat_gpu, label: "lat gpu")
+    IO.inspect(lng_gpu, label: "lng gpu")
+
+    start = ord
+    finish = 29 + ord
+
     res =
-      Enum.reduce(1..30, [], fn _, acc ->
-        fs = run(:fused, lat_gpu, lng_gpu, lat_in, lng_in)
-        ufs = run(:unfused, lat_gpu, lng_gpu, lat_in, lng_in)
-        acc ++ [%{"unfused" => ufs, "fused" => fs}]
+      Enum.reduce(start..finish, [], fn i, acc ->
+        if rem(i, 2) == 0 do
+          fs = run(:fused, lat_gpu, lng_gpu, lat_in, lng_in)
+          ufs = run(:unfused, lat_gpu, lng_gpu, lat_in, lng_in)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        else
+          ufs = run(:unfused, lat_gpu, lng_gpu, lat_in, lng_in)
+          fs = run(:fused, lat_gpu, lng_gpu, lat_in, lng_in)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        end
       end)
 
     res

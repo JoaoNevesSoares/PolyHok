@@ -30,7 +30,7 @@ defmodule NBodybench do
     {[{:size, n}, {:type, type}, {:order, ord} | _rest], [], []} =
       OptionParser.parse(argv, strict: [size: :integer, type: :string, order: :integer])
 
-    file = File.open!("nbodies_#{ord}_#{n}_#{type}.csv", [:write, :utf8])
+    file = File.open!("results/nbody/nbodies_#{type}_#{ord}_#{n}.csv", [:write, :utf8])
 
      {pos, accel, vel} = case type do
         "float" -> gen_data(n, {:f, 32})

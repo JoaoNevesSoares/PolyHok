@@ -141,7 +141,7 @@ PolyHok.defmodule Ni do
       )
       |> Ske.map(
         PolyHok.phok(fn xi ->
-          sin(xi) * expf(xi)
+          sinf(xi) * expf(xi)
         end)
       )
       |> Ske.map2(
@@ -191,7 +191,7 @@ PolyHok.defmodule Ni do
         )
         |> Ske.map(
           PolyHok.phok(fn xi ->
-            sin(xi) * expf(xi)
+            sinf(xi) * expf(xi)
           end)
         )
         |> Ske.map2(

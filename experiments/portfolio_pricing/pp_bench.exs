@@ -6,7 +6,6 @@ defmodule Ppbench do
     res = PortfolioPricing.run_fs(stock, strike, years, weight, volatility, riskfree)
     end_time = System.monotonic_time()
     gpu = PolyHok.get_gnx(res)
-    gpu_res = Nx.to_number(gpu[0][0]) |> IO.inspect(label: "fused_res")
     System.convert_time_unit(end_time - start_time, :native, :millisecond)
   end
 
@@ -15,17 +14,16 @@ defmodule Ppbench do
     res = PortfolioPricing.run_unfs(stock, strike, years, weight, volatility, riskfree)
     end_time = System.monotonic_time()
     gpu = PolyHok.get_gnx(res)
-    gpu_res = Nx.to_number(gpu[0][0]) |> IO.inspect(label: "unfused_res")
     System.convert_time_unit(end_time - start_time, :native, :millisecond)
   end
 
   def main() do
     argv = System.argv()
 
-    {[{:size, n} | _rest], [], []} =
-      OptionParser.parse(argv, strict: [size: :integer])
+    {[{:size, n}, {:order, ord} | _rest], [], []} =
+      OptionParser.parse(argv, strict: [size: :integer, order: :integer])
 
-    file = File.open!("#{n}_pp_2.csv", [:write, :utf8])
+    file = File.open!("results/pp/pp_#{ord}_#{n}.csv", [:write, :utf8])
 
     stock = PolyHok.random_gnx(5, 30, n)
     strike = PolyHok.random_gnx(1, 100, n)
@@ -34,12 +32,20 @@ defmodule Ppbench do
     volatility = 0.3
     riskfree = 0.02
 
-    res =
-      Enum.reduce(1..30, [], fn _, acc ->
-        fs = run(:fused, stock, strike, years, weight, volatility, riskfree)
-        ufs = run(:unfused, stock, strike, years, weight, volatility, riskfree)
+    start = ord
+    finish = 29 + ord
 
-        acc ++ [%{"unfused" => ufs, "fused" => fs}]
+    res =
+      Enum.reduce(start..finish, [], fn i, acc ->
+        if rem(i, 2) == 0 do
+          fs = run(:fused, stock, strike, years, weight, volatility, riskfree)
+          ufs = run(:unfused, stock, strike, years, weight, volatility, riskfree)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        else
+          ufs = run(:unfused, stock, strike, years, weight, volatility, riskfree)
+          fs = run(:fused, stock, strike, years, weight, volatility, riskfree)
+          acc ++ [%{"unfused" => ufs, "fused" => fs}]
+        end
       end)
 
     res
