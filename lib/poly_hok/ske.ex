@@ -26,9 +26,7 @@ PolyHok.defmodule Ske do
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
 
     threadsPerBlock = 256
-    blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
-    # blocksPerGrid = 4096
-    numberOfBlocks = blocksPerGrid
+    numberOfBlocks = div(size + threadsPerBlock - 1, threadsPerBlock)
 
     case type do
       {:f, 32} ->
@@ -143,8 +141,7 @@ PolyHok.defmodule Ske do
     result_gpu = PolyHok.new_gnx(Nx.tensor([[initial]], type: type))
 
     threadsPerBlock = 256
-    blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
-    numberOfBlocks = blocksPerGrid
+    numberOfBlocks = div(size + threadsPerBlock - 1, threadsPerBlock)
 
     case type do
       {:f, 32} ->
@@ -353,13 +350,12 @@ PolyHok.defmodule Ske do
 
     threadsPerBlock = 256
     blocksPerGrid = div(size + threadsPerBlock - 1, threadsPerBlock)
-    numberOfBlocks = 4096
 
     case type do
       {:f, 32} ->
         cas = PolyHok.phok(fn x, y, z -> cas_float(x, y, z) end)
 
-        PolyHok.spawn(&Ske.reduce_kernel/6, {numberOfBlocks, 1, 1}, {threadsPerBlock, 1, 1}, [
+        PolyHok.spawn(&Ske.reduce_kernel/6, {blocksPerGrid, 1, 1}, {threadsPerBlock, 1, 1}, [
           ref,
           result_gpu,
           initial,
@@ -371,7 +367,7 @@ PolyHok.defmodule Ske do
       {:f, 64} ->
         cas = PolyHok.phok(fn x, y, z -> cas_double(x, y, z) end)
 
-        PolyHok.spawn(&Ske.reduce_kernel/6, {numberOfBlocks, 1, 1}, {threadsPerBlock, 1, 1}, [
+        PolyHok.spawn(&Ske.reduce_kernel/6, {blocksPerGrid, 1, 1}, {threadsPerBlock, 1, 1}, [
           ref,
           result_gpu,
           initial,
@@ -383,7 +379,7 @@ PolyHok.defmodule Ske do
       {:s, 32} ->
         cas = PolyHok.phok(fn x, y, z -> cas_int(x, y, z) end)
 
-        PolyHok.spawn(&Ske.reduce_kernel/6, {numberOfBlocks, 1, 1}, {threadsPerBlock, 1, 1}, [
+        PolyHok.spawn(&Ske.reduce_kernel/6, {blocksPerGrid, 1, 1}, {threadsPerBlock, 1, 1}, [
           ref,
           result_gpu,
           initial,
