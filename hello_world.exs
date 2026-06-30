@@ -34,12 +34,17 @@ PolyHok.defmodule Hello do
   end
 
   def map_main() do
-
-    PolyHok.random_gnx(1, 2, 100000000)
-    |> Ske.map(PolyHok.phok(fn x -> x + 100 end))
-    |> Ske.map(PolyHok.phok(fn x -> sqrtf(x) end))
+    PolyHok.random_gnx(5, 10, 256, {:s, 32})
     |> PolyHok.get_gnx()
-    |> IO.inspect()
+    |> IO.inspect(label: "integer random")
+
+    PolyHok.random_gnx(5, 10, 256, {:f, 32})
+    |> PolyHok.get_gnx()
+    |> IO.inspect(label: "float")
+
+    PolyHok.random_gnx(5, 10, 256, {:f, 64})
+    |> PolyHok.get_gnx()
+    |> IO.inspect(label: "double")
   end
 end
 Hello.map_main()
